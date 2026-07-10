@@ -21,8 +21,9 @@
 | v1 范围 | 核心 `kb-setup` skill + CLAUDE.md/AGENTS.md 契约;可视化只留数据契约接口,不写可跑代码 |
 | 通用程度 | 领域无关空骨架 + 1 个填好的领域示例 |
 | 交付形式 | 可 clone 的模板仓库,内置 `.claude/skills/kb-setup` |
-| 目标 Agent | Claude Code 为主(SKILL.md)+ AGENTS.md 兼容其他 agent |
+| 目标 Agent | **Claude Code 与 Codex 双端可用**,共享同一份 agent 无关的 setup 逻辑 |
 | 语言 | 中文为主 + 英文兼容 |
+| 输入模态 | **多模态**:文本、网页截图、照片、音频(抖音/播客等)均可作为 raw 素材 |
 
 ## 2. 架构:三层模型
 
@@ -33,7 +34,10 @@
 3. **规范层 `CLAUDE.md` / `AGENTS.md`** —— 告诉 LLM 怎么干活:目录契约、frontmatter 契约、ingest/query/lint 工作流、隐私与只读约束。
 
 ### 职责划分(关键设计)
-- **`kb-setup` skill** = 只负责"一键搭建"这件**一次性**的事(问答定制、建骨架、工具自检、写首批页面)。这是 v1 核心交付物。
+- **一键搭建逻辑** = 抽成一份 **agent 无关的 setup 参考文档**(`.claude/skills/kb-setup/references/setup-flow.md`),两端共享:
+  - **Claude Code** 通过 `SKILL.md` 触发它;
+  - **Codex** 通过 `AGENTS.md` 里的"首次启动指令"触发同一份(Codex 无 skill 机制,靠读 AGENTS.md + 该文档执行)。
+  - 两端体验对齐,不是 Claude 优先、Codex 兜底。
 - **`CLAUDE.md`** = 负责**日常** ingest/query/lint。Agent 读宪法即会执行,不需要额外 skill。职责单一、边界清晰。
 - **可视化** = v1 只在 `scripts/` + `web/` 留**数据契约文档**(frontmatter → JSON 映射),把 english-learn 的 build-kb 通用化留到 v2。
 
@@ -50,10 +54,12 @@ karp-wiki/                        # slug 由 chatgpt-advanced-prompts 重命名�
 ├── .claude/
 │   └── skills/
 │       └── kb-setup/             # ★ 核心交付物:一键搭建 skill
-│           ├── SKILL.md          #   onboarding 向导
+│           ├── SKILL.md          #   Claude 端触发器(薄封装)
 │           └── references/
+│               ├── setup-flow.md             # ★ agent 无关的一键搭建流程(两端共享)
 │               ├── directory-contract.md    # 目录契约
 │               ├── frontmatter-contract.md  # YAML frontmatter 契约
+│               ├── multimodal-ingest.md     # 截图/照片/音频 → Markdown 的处理指引
 │               └── workflows.md             # ingest/query/lint 详细步骤
 ├── wiki/                         # 通用空骨架
 │   ├── index.md                  #   全局索引(每页一行:链接 + 一句话摘要)
@@ -62,7 +68,12 @@ karp-wiki/                        # slug 由 chatgpt-advanced-prompts 重命名�
 │   ├── entities/                 #   实体页:人物/项目/公司/工具(.gitkeep)
 │   ├── sources/                  #   资料摘要(.gitkeep)
 │   └── outputs/                  #   查询产出:综述/对比表/分析(.gitkeep)
-├── raw/                          # 原始资料区(只读),.gitkeep
+├── raw/                          # 原始资料区(只读,多模态)
+│   ├── text/                     #   文本/剪藏/导出
+│   ├── screenshots/              #   网页截图、小红书帖子截图
+│   ├── photos/                   #   照片、手写拍照
+│   └── audio/                    #   抖音/播客/语音等音频
+├── (每个 raw 子目录) .gitkeep
 ├── templates/                    # frontmatter 模板:concept/entity/source/output
 ├── examples/                     # 1 个填好的领域示例(读书笔记),新手照抄
 ├── scripts/                      # 可视化接口(v1 占位):README + 数据契约,不含可跑代码
@@ -73,18 +84,20 @@ karp-wiki/                        # slug 由 chatgpt-advanced-prompts 重命名�
 
 ## 4. 核心组件规格
 
-### 4.1 `kb-setup` skill(SKILL.md)
-一次性 onboarding 向导。触发:用户在 clone 好的目录里说"帮我搭知识库"/"初始化知识库"。
+### 4.1 一键搭建(双端共享)
+一次性 onboarding 向导。流程本体写在 `references/setup-flow.md`(agent 无关),两端触发方式不同:
+- **Claude Code**:`SKILL.md` 是薄封装,触发词"帮我搭知识库"/"初始化知识库",内部指向 setup-flow.md。
+- **Codex**:`AGENTS.md` 顶部有一段"若知识库尚未初始化,先执行 setup-flow.md"的指令,用户首次让 Codex 干活时即触发同一流程。
 
-工作流:
-1. **问答定制** —— 问知识库主题/领域、用途、是否含私密内容。
+`setup-flow.md` 步骤:
+1. **问答定制** —— 问知识库主题/领域、用途、是否含私密内容、主要输入模态(文本/截图/照片/音频)。
 2. **工具自检** —— 检测 `git`、`rg`(ripgrep)、可选 Obsidian;缺失的给出安装命令(不自动装,只提示)。
-3. **建骨架** —— 确认 `wiki/` 四大类目已就位;据领域可增设类目(如学习类加 `vocabulary/`)。
-4. **定制宪法** —— 在 CLAUDE.md 补一段领域说明(该领域关注什么、类目怎么用)。
-5. **首次录入** —— 引导用户放第一份资料到 `raw/`,走一遍 ingest,产出首个 source 页 + 更新 index/log,让用户立刻看到成品。
+3. **建骨架** —— 确认 `wiki/` 四大类目与 `raw/` 多模态子目录已就位;据领域可增设类目(如学习类加 `vocabulary/`)。
+4. **定制宪法** —— 在 CLAUDE.md/AGENTS.md 补一段领域说明(该领域关注什么、类目怎么用)。
+5. **首次录入** —— 引导用户放第一份资料到 `raw/`(可以是截图/照片/音频),走一遍 ingest,产出首个 source 页 + 更新 index/log,让用户立刻看到成品。
 6. **收尾** —— 告诉用户日常怎么用(ingest/query/lint 三个动作),指向 examples/。
 
-设计约束:skill 只做搭建,不承接日常操作;日常操作由 CLAUDE.md 承接。
+设计约束:setup 只做搭建,不承接日常操作;日常操作由 CLAUDE.md/AGENTS.md 承接。
 
 ### 4.2 `CLAUDE.md`(宪法)
 包含:
@@ -92,13 +105,16 @@ karp-wiki/                        # slug 由 chatgpt-advanced-prompts 重命名�
 - **目录契约** —— 每个目录放什么、命名规范。
 - **frontmatter 契约** —— 每页 YAML 头(见 4.4)。
 - **三大工作流**:
-  - **Ingest(摄入)**:读 `raw/` 新资料 → 与用户讨论要点 → 写 `sources/` 摘要 → 更新 `index.md` → 更新相关 `concepts/`+`entities/` → 追加 `log.md`。
+  - **Ingest(摄入,多模态)**:读 `raw/` 新资料 →(若为截图/照片:让 agent 读图并转成文字描述/摘要;若为音频:转写或让用户提供转写)→ 与用户讨论要点 → 写 `sources/` 摘要(注明原始媒体类型与文件名)→ 更新 `index.md` → 更新相关 `concepts/`+`entities/` → 追加 `log.md`。多模态细节见 `multimodal-ingest.md`。
   - **Query(查询)**:先读 `index.md` 定位 → 深读相关页 → 综合回答并引用具体页 → 有价值的答案存 `outputs/` 并更新 index。
   - **Lint(健康检查)**:查页面矛盾、孤立页(无入链)、提到但未建页的概念、可更新的过时信息。
 - **约束**:隐私边界(私密内容仅明确查询时提及)、raw 只读、过期归档不删、统一 `[[wiki-links]]` 内链、每次操作同步更新 index + log(双维护)。
 
 ### 4.3 `AGENTS.md`
-精简版,重申三层架构 + 目录/frontmatter 契约 + 工作流要点,并注明"详见 CLAUDE.md",让 Codex 等非 Claude agent 也能读懂规则。
+Codex 等非 Claude agent 的一等公民入口(不是兜底):
+- 顶部"首次启动指令":若知识库未初始化,先执行 `.claude/skills/kb-setup/references/setup-flow.md`。
+- 重申三层架构 + 目录/frontmatter 契约 + ingest/query/lint 工作流要点。
+- 与 CLAUDE.md 内容对齐(同一套规则的两种入口),避免两端行为分叉。
 
 ### 4.4 frontmatter 契约(templates/)
 每页 YAML 头最小通用集:
@@ -123,7 +139,11 @@ Karpathy 原型最小通用集,任何领域适用:
 - `outputs/` —— 查询产出(综述、对比表、分析)
 
 ### 4.6 领域示例(examples/)
-放 1 个填好的完整示例领域:**读书笔记**(受众最广、最直观)。含 1 份 source、若干 concept/entity、1 个 output,以及一份精简 index —— 让新手打开即见成品。
+放 1 个填好的**宽泛"个人知识收藏库"**示例,专门展示**多模态录入**:
+- 1 张网页/小红书帖子截图 → 一份 source 摘要页(演示读图转文字);
+- 1 段抖音/播客音频 → 一份 source 摘要页(演示转写 → 要点);
+- 由以上素材衍生的若干 `concepts/`、`entities/`、1 个 `outputs/` 综述,以及精简 index。
+让新手打开即见"截图/照片/音频怎么变成结构化知识"的成品样例。示例用占位素材,不含真实私密内容。
 
 ### 4.7 可视化接口(scripts/ + web/,v1 占位)
 只放文档:
@@ -146,12 +166,14 @@ Karpathy 原型最小通用集,任何领域适用:
 - 不写可跑的可视化脚本 / 网页(只留契约,v2 做)。
 - 不做云同步、登录、部署。
 - 不自动安装工具(只检测 + 提示命令)。
-- 不做多领域预设菜单(只 1 个示例领域 + 领域无关骨架)。
+- 不做多领域预设菜单(只 1 个多模态示例领域 + 领域无关骨架)。
+- 不做自动语音转写/OCR 的可跑脚本(v1 靠 agent 读图/用户提供转写;专用管线留 v2)。
 - 不从网页写回 Markdown。
 
 ## 7. 成功标准
 
-- 新手 clone 仓库 → 启动 Claude Code → 说一句话 → 在 10 分钟内拥有一个含首个真实录入页面的可用知识库。
+- 新手 clone 仓库 → 启动 Claude Code **或 Codex** → 说一句话 → 在 10 分钟内拥有一个含首个真实录入页面的可用知识库,两端结果一致。
+- 截图、照片、音频均可作为 raw 素材被 ingest 成规范的 source 页。
 - 产出的每一页都符合 frontmatter 契约,且 `index.md`/`log.md` 同步更新。
-- 所有文档中文为主、英文兼容;`AGENTS.md` 使非 Claude agent 也能遵守规则。
+- 所有文档中文为主、英文兼容。
 - 目录与 frontmatter 契约足够稳定,v2 的可视化脚本无需改动 v1 页面即可消费。

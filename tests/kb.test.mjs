@@ -1,18 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, symlink } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseFrontmatter, extractWikiLinks, resolveRoot,
-  collectPages, findMalformed, validate, indexCoverageErrors, visibilityErrors,
+  collectPages, findMalformed, validate, indexCoverageErrors, visibilityErrors, sha256File,
 } from '../scripts/kb.mjs';
 import { withTmpDir, writeTree } from './helpers/tmp.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const kbCli = path.join(here, '..', 'scripts', 'kb.mjs');
 const fx = (name) => path.join(here, 'fixtures', name);
 const errsOf = async (name) => validate(await collectPages(path.join(fx(name), 'wiki')), fx(name));
 const cats = (errs) => new Set(errs.map((e) => e.category));
+const runCheck = (root) => spawnSync(process.execPath, [kbCli, 'check', '--root', root], { encoding: 'utf8' });
 const page = (frontmatter, body = 'body') => `---\n${frontmatter}\n---\n\n${body}\n`;
 const conceptFrontmatter = (id) => `schema_version: 1
 id: ${id}
@@ -121,4 +124,146 @@ raw_sha256: "0000000000000000000000000000000000000000000000000000000000000000"`)
       assert.ok(cats(errors).has('symlink_escape'));
     });
   });
+});
+
+test('review regression: parseFrontmatter requires a standalone closing delimiter', () => {
+  assert.throws(() => parseFrontmatter('---\nid: concept-a\n---not-a-fence\nbody\n', 'concept-a.md'));
+});
+
+test('review regression: findMalformed flags a prefixed pseudo-fence', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/concepts/concept-a.md': '---\nid: concept-a\n---not-a-fence\nbody\n',
+    });
+    assert.deepEqual(await findMalformed(path.join(root, 'wiki')), [path.join(root, 'wiki/concepts/concept-a.md')]);
+  });
+});
+
+test('review regression: inline arrays preserve numeric and boolean scalar types', () => {
+  const parsed = parseFrontmatter('---\ntags: [learning, 7, false]\n---\n', 'types.md');
+  assert.deepEqual(parsed.frontmatter.tags, ['learning', 7, false]);
+});
+
+test('review regression: validate rejects wrong common scalar field types', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/concepts/123.md': page(`schema_version: "1"
+id: 123
+type: false
+subtype: 2
+title: 3
+summary: false
+tags: []
+source_ids: []
+status: true
+content_visibility: 4
+created_at: false
+updated_at: 5`),
+    });
+    const errors = await validate(await collectPages(path.join(root, 'wiki')), root);
+    const messages = errors.filter((error) => error.category === 'type_error').map((error) => error.message);
+    for (const field of [
+      'schema_version', 'id', 'type', 'subtype', 'title', 'summary',
+      'status', 'content_visibility', 'created_at', 'updated_at',
+    ]) {
+      assert.ok(messages.some((message) => message.includes(`: ${field}`)), `${field}: ${messages.join('\n')}`);
+    }
+  });
+});
+
+test('review regression: validate rejects non-string array elements', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/concepts/concept-array-types.md': page(`${conceptFrontmatter('concept-array-types')
+        .replace('tags: []', 'tags: [learning, 7]')
+        .replace('source_ids: []', 'source_ids: [source-a, false]')}`),
+    });
+    const errors = await validate(await collectPages(path.join(root, 'wiki')), root);
+    const messages = errors.filter((error) => error.category === 'type_error').map((error) => error.message);
+    assert.ok(messages.some((message) => message.includes(': tags')));
+    assert.ok(messages.some((message) => message.includes(': source_ids')));
+  });
+});
+
+test('review regression: validate rejects wrong source and output field types', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/sources/source-types.md': page(`${conceptFrontmatter('source-types')
+        .replace('type: concept', 'type: source')}
+media_type: 7
+raw_path: false
+raw_sha256: 9
+provenance: true`),
+      'wiki/outputs/output-types.md': page(`${conceptFrontmatter('output-types')
+        .replace('type: concept', 'type: output')}
+query: 7`),
+    });
+    const errors = await validate(await collectPages(path.join(root, 'wiki')), root);
+    const messages = errors.filter((error) => error.category === 'type_error').map((error) => error.message);
+    for (const field of ['media_type', 'raw_path', 'raw_sha256', 'provenance', 'query']) {
+      assert.ok(messages.some((message) => message.includes(`: ${field}`)), `${field}: ${messages.join('\n')}`);
+    }
+  });
+});
+
+test('review regression: validate requires raw_path beneath the raw subtree', async () => {
+  await withTmpDir(async (root) => {
+    const content = 'in root but outside raw\n';
+    await writeTree(root, {
+      'published.txt': content,
+      'wiki/sources/source-published.md': page(`${conceptFrontmatter('source-published')
+        .replace('type: concept', 'type: source')}
+media_type: text
+raw_path: published.txt
+raw_sha256: "${sha256File(Buffer.from(content))}"`),
+    });
+    const errors = await validate(await collectPages(path.join(root, 'wiki')), root);
+    assert.ok(cats(errors).has('raw_path'), JSON.stringify(errors, null, 2));
+  });
+});
+
+test('review regression: CLI rejects wiki when it is a regular file', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, { wiki: 'not a directory\n' });
+    const result = runCheck(root);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+  });
+});
+
+test('review regression: CLI rejects .karp-wiki when it is a regular file', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/index.md': '',
+      '.karp-wiki': 'not a directory\n',
+    });
+    const result = runCheck(root);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+  });
+});
+
+test('review regression: CLI rejects malformed config JSON', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/index.md': '',
+      '.karp-wiki/config.json': '{not-json\n',
+    });
+    const result = runCheck(root);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+  });
+});
+
+test('review regression: CLI rejects an unknown storage mode', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/concepts/concept-private.md': page(conceptFrontmatter('concept-private')),
+      'wiki/index.md': '- [[concept-private]] — s\n',
+      '.karp-wiki/config.json': '{"storage":{"mode":"publci-git"}}\n',
+    });
+    const result = runCheck(root);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+  });
+});
+
+test('review regression: resolveRoot fails for --root without a value', () => {
+  assert.equal(resolveRoot(['--root']), null);
 });

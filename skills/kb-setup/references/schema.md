@@ -1,6 +1,6 @@
-# Karp Wiki schema v1
+# karp-wiki schema v1
 
-本文档是 Karp Wiki v1 页面、索引、日志、隐私 tracking 和知识图谱的规范契约。下列规则由 `kb.mjs`、工作流和文档共同引用。
+本文档是 karp-wiki v1 页面、索引、日志、隐私 tracking 和知识图谱的规范契约。下列规则由 `kb.mjs`、工作流和文档共同引用。
 
 ## 通用 frontmatter
 

@@ -1,0 +1,9 @@
+# 模板默认(storage.mode 未定制前)。setup 会据所选 mode 重写本文件。
+# 说明见 skills/kb-setup/references/schema.md 的 tracking 矩阵。
+raw/text/*
+raw/images/*
+raw/audio/*
+!raw/**/.gitkeep
+data/generated/
+.DS_Store
+node_modules/

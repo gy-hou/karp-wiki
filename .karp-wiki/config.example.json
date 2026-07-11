@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "state": "not_started",
+  "setup": {
+    "current_step": null,
+    "completed_steps": [],
+    "_step_order": ["read_state", "interview", "privacy_tools", "scaffold", "first_ingest", "finalize"]
+  },
+  "domain": { "topic": "", "purpose": "", "extra_subtypes": [] },
+  "storage": {
+    "mode": "local-only",
+    "remote_is_private_ack": false,
+    "_mode_values": ["local-only", "private-git", "public-git"]
+  },
+  "privacy": {
+    "persist_queries": "ask",
+    "default_content_visibility": "private"
+  },
+  "modalities": { "text": true, "image": "if-agent-vision", "audio": "transcript-only" }
+}

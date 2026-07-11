@@ -17,13 +17,14 @@ export const REQUIRED_FIELDS = [
 const MEDIA_TYPES = new Set(['text', 'image', 'audio']);
 const STATUS_VALUES = new Set(['active', 'archived']);
 const VISIBILITY_VALUES = new Set(['private', 'shareable']);
+const STORAGE_MODES = new Set(['local-only', 'private-git', 'public-git']);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SKIP_BASENAMES = new Set(['index.md', 'log.md']);
 
 // Root order: --root > git toplevel > cwd with wiki/ > null.
 export function resolveRoot(argvTail) {
   const i = argvTail.indexOf('--root');
-  if (i !== -1 && argvTail[i + 1]) return path.resolve(argvTail[i + 1]);
+  if (i !== -1) return argvTail[i + 1] ? path.resolve(argvTail[i + 1]) : null;
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
   } catch {
@@ -48,7 +49,7 @@ function parseScalar(value) {
   if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
     const inner = trimmed.slice(1, -1).trim();
     if (!inner) return [];
-    return inner.split(',').map((part) => stripQuotes(part.trim())).filter(Boolean);
+    return inner.split(',').map((part) => parseScalar(part));
   }
   if (trimmed === 'true') return true;
   if (trimmed === 'false') return false;
@@ -58,10 +59,12 @@ function parseScalar(value) {
 
 export function parseFrontmatter(text, filePath) {
   if (!text.startsWith('---\n')) return null;
-  const end = text.indexOf('\n---', 4);
-  if (end === -1) throw new Error(`Unclosed frontmatter: ${filePath}`);
-  const raw = text.slice(4, end);
-  const body = text.slice(end + 4).replace(/^\r?\n(?:\r?\n)?/, '');
+  const afterOpening = text.slice(4);
+  const closing = /^---\r?$/m.exec(afterOpening);
+  if (!closing) throw new Error(`Unclosed frontmatter: ${filePath}`);
+  const raw = afterOpening.slice(0, closing.index);
+  const body = afterOpening.slice(closing.index + closing[0].length)
+    .replace(/^\r?\n(?:\r?\n)?/, '');
   const frontmatter = {};
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim() || line.trim().startsWith('#')) continue;
@@ -90,7 +93,7 @@ export function sha256File(buf) {
 }
 
 function isMissing(error) {
-  return error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
+  return error?.code === 'ENOENT';
 }
 
 async function collectMarkdown(dir) {
@@ -191,6 +194,22 @@ export async function validate(pages, rootDir) {
         ((field === 'source_ids' || field === 'tags') && !Array.isArray(value));
       if (missing) add('missing_field', `${relativeFile}: ${field}`);
     }
+    if (page.frontmatter.schema_version !== undefined &&
+        !Number.isInteger(page.frontmatter.schema_version)) {
+      add('type_error', `${relativeFile}: schema_version must be an integer`);
+    }
+    for (const field of [
+      'id', 'type', 'title', 'summary', 'status',
+      'content_visibility', 'created_at', 'updated_at',
+    ]) {
+      const value = page.frontmatter[field];
+      if (value !== undefined && typeof value !== 'string') {
+        add('type_error', `${relativeFile}: ${field} must be a string`);
+      }
+    }
+    if (page.frontmatter.subtype !== undefined && typeof page.frontmatter.subtype !== 'string') {
+      add('type_error', `${relativeFile}: subtype must be a string`);
+    }
     if (page.schemaVersion !== SCHEMA_VERSION) {
       add('schema_version', `${relativeFile}: expected ${SCHEMA_VERSION}, got ${page.schemaVersion}`);
     }
@@ -208,11 +227,17 @@ export async function validate(pages, rootDir) {
         add('invalid_date', `${relativeFile}: ${field}=${value}`);
       }
     }
-    if (page.tags !== undefined && !Array.isArray(page.tags)) {
-      add('type_error', `${relativeFile}: tags must be an array`);
+    if (page.tags !== undefined) {
+      if (!Array.isArray(page.tags)) add('type_error', `${relativeFile}: tags must be an array`);
+      else if (page.tags.some((tag) => typeof tag !== 'string')) {
+        add('type_error', `${relativeFile}: tags elements must be strings`);
+      }
     }
-    if (page.sourceIds !== undefined && !Array.isArray(page.sourceIds)) {
-      add('type_error', `${relativeFile}: source_ids must be an array`);
+    if (page.sourceIds !== undefined) {
+      if (!Array.isArray(page.sourceIds)) add('type_error', `${relativeFile}: source_ids must be an array`);
+      else if (page.sourceIds.some((sourceId) => typeof sourceId !== 'string')) {
+        add('type_error', `${relativeFile}: source_ids elements must be strings`);
+      }
     }
     if (page.id && page.basename !== `${page.id}.md`) {
       add('filename', `${relativeFile}: expected ${page.id}.md`);
@@ -226,6 +251,15 @@ export async function validate(pages, rootDir) {
     }
 
     if (page.type === 'source') {
+      for (const field of ['media_type', 'raw_path', 'raw_sha256']) {
+        const value = page.frontmatter[field];
+        if (value !== undefined && typeof value !== 'string') {
+          add('type_error', `${relativeFile}: ${field} must be a string`);
+        }
+      }
+      if (page.frontmatter.provenance !== undefined && typeof page.frontmatter.provenance !== 'string') {
+        add('type_error', `${relativeFile}: provenance must be a string`);
+      }
       if (!MEDIA_TYPES.has(page.mediaType)) add('media_type', `${relativeFile}: ${page.mediaType}`);
       if (page.mediaType === 'audio' && (!page.provenance || String(page.provenance).trim() === '')) {
         add('missing_field', `${relativeFile}: provenance (audio must declare transcript provenance)`);
@@ -238,10 +272,13 @@ export async function validate(pages, rootDir) {
         const absoluteRaw = path.resolve(root, page.rawPath);
         if (!isWithin(root, absoluteRaw)) {
           add('path_escape', `${relativeFile}: raw_path escapes KB root -> ${page.rawPath}`);
+        } else if (!isWithin(path.join(root, 'raw'), absoluteRaw) || absoluteRaw === path.join(root, 'raw')) {
+          add('raw_path', `${relativeFile}: raw_path must be beneath raw/ -> ${page.rawPath}`);
         } else {
           try {
+            const realRawRoot = await realpath(path.join(root, 'raw'));
             const realRaw = await realpath(absoluteRaw);
-            if (!isWithin(realRoot, realRaw)) {
+            if (!isWithin(realRoot, realRawRoot) || !isWithin(realRawRoot, realRaw)) {
               add('symlink_escape', `${relativeFile}: raw_path resolves outside KB root`);
             } else {
               const actual = sha256File(await readFile(realRaw));
@@ -264,7 +301,11 @@ export async function validate(pages, rootDir) {
     }
 
     if (page.type === 'output') {
-      if (page.query === undefined || page.query === null || String(page.query).trim() === '') {
+      if (page.query !== undefined && page.query !== null && typeof page.query !== 'string') {
+        add('type_error', `${relativeFile}: query must be a string`);
+      }
+      if (page.query === undefined || page.query === null ||
+          (typeof page.query === 'string' && page.query.trim() === '')) {
         add('missing_field', `${relativeFile}: query`);
       }
     }
@@ -312,7 +353,9 @@ export function visibilityErrors(pages, mode) {
 async function readConfigMode(root) {
   try {
     const config = JSON.parse(await readFile(path.join(root, '.karp-wiki', 'config.json'), 'utf8'));
-    return config?.storage?.mode ?? 'local-only';
+    const mode = config?.storage?.mode;
+    if (!STORAGE_MODES.has(mode)) throw new Error(`Invalid storage mode: ${mode}`);
+    return mode;
   } catch (error) {
     if (isMissing(error)) return 'local-only';
     throw error;
@@ -357,7 +400,8 @@ async function cmdCheck(root) {
 
 async function assertKb(root) {
   try {
-    await stat(path.join(root, 'wiki'));
+    const wiki = await stat(path.join(root, 'wiki'));
+    if (!wiki.isDirectory()) throw new Error(`wiki/ is not a directory at KB root: ${root}`);
   } catch (error) {
     if (isMissing(error)) throw new Error(`No wiki/ found at KB root: ${root}`);
     throw error;

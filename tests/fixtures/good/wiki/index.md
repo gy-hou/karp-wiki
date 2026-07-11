@@ -1,0 +1,5 @@
+- [[concept-spaced-repetition]] — 用逐渐延长的复习间隔巩固记忆。
+- [[entity-obsidian]] — 本地 Markdown 笔记工具。
+- [[output-notes]] — 综合回答。
+- [[source-note]] — A note about spaced repetition.
+- [[source-shot]] — A screenshot fixture.

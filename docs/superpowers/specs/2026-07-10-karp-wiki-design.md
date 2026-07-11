@@ -3,6 +3,14 @@
 > 通用型本地知识库一键搭建模板仓库 · v1 设计
 > 日期:2026-07-10 · 状态:设计已确认,待出实施计划
 
+> ⚠️ **2026-07-11 修订说明(经 Codex 复核):本文若干前提已被推翻,以 `docs/superpowers/plans/2026-07-11-karp-wiki-v1.1.md` 为准。**
+> - §4.1 / §2 "Codex 无 skill 机制" **错误**:Codex 原生发现 `.agents/skills/<name>/SKILL.md`(与 Claude 的 `.claude/skills/` 同为开放 Agent Skills 标准)。v1.1 改为**双端 native skill**(canonical 源 + 两份发现镜像)。
+> - §5 Phase 0 仓库迁移**已完成且过时**:remote 已是 `karp-wiki`,旧路径已不存在。v1.1 从当前基线开始,不再执行迁移。
+> - §4.7 "v1 不写可跑脚本" 改为:v1 交付**最小确定性内核** `scripts/kb.mjs`(check / reindex / build-graph)。
+> - §1.3 / §7 "数据留本地" 措辞修正为"文件默认本地;被 Agent 读取的内容会发送给所配置的模型提供商",并引入 `visibility` 隐私模式。
+> - §4.4 frontmatter 契约扩展(schema_version / summary / status / visibility / raw_sha256),见 v1.1 `schema.md`。
+> - §4.6 多模态示例改为**真实图片 fixture**;音频明确为 transcript-only。
+
 ## 1. 背景与目标
 
 ### 起源

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // karp-wiki deterministic kernel. Zero external deps. Node >= 20.
-import { readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -371,10 +371,61 @@ export function buildIndex(pages) {
   return `${lines.join('\n').replace(/\n+$/, '')}\n`;
 }
 
+export function buildGraph(pages) {
+  const nodes = pages
+    .filter((page) => page.id)
+    .map((page) => ({ id: page.id, type: page.type, title: page.title }))
+    .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  const seen = new Set();
+  const edges = [];
+  const push = (from, to, relation) => {
+    if (!from || !to) return;
+    const key = `${from}|${to}|${relation}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    edges.push({ from, to, relation });
+  };
+  for (const page of pages) {
+    for (const sourceId of (Array.isArray(page.sourceIds) ? page.sourceIds : [])) {
+      push(page.id, sourceId, 'derived_from');
+    }
+    for (const link of page.links) push(page.id, link, 'links_to');
+  }
+  edges.sort((left, right) => {
+    for (const field of ['from', 'to', 'relation']) {
+      if (left[field] < right[field]) return -1;
+      if (left[field] > right[field]) return 1;
+    }
+    return 0;
+  });
+  return { schema_version: SCHEMA_VERSION, nodes, edges };
+}
+
 async function cmdReindex(root) {
   const pages = await collectPages(path.join(root, 'wiki'));
   await writeFile(path.join(root, 'wiki', 'index.md'), buildIndex(pages), 'utf8');
   console.log(`✓ reindex: ${pages.length} page(s) -> wiki/index.md`);
+}
+
+async function cmdBuildGraph(root) {
+  const wikiDir = path.join(root, 'wiki');
+  const pages = await collectPages(wikiDir);
+  const errors = await validate(pages, root);
+  for (const file of await findMalformed(wikiDir)) {
+    errors.push({ category: 'no_frontmatter', message: path.relative(root, file) });
+  }
+  errors.push(...visibilityErrors(pages, await readConfigMode(root)));
+  if (errors.length) {
+    printErrors(errors);
+    console.error(`\n✗ build-graph aborted (fail-closed): ${errors.length} error(s)`);
+    process.exitCode = 1;
+    return;
+  }
+  const graph = buildGraph(pages);
+  const outDir = path.join(root, 'data', 'generated');
+  await mkdir(outDir, { recursive: true });
+  await writeFile(path.join(outDir, 'graph.json'), `${JSON.stringify(graph, null, 2)}\n`, 'utf8');
+  console.log(`✓ build-graph: ${graph.nodes.length} node(s), ${graph.edges.length} edge(s) -> data/generated/graph.json`);
 }
 
 async function readConfigMode(root) {
@@ -435,14 +486,14 @@ async function assertKb(root) {
   }
 }
 
-const COMMANDS = { check: cmdCheck, reindex: cmdReindex };
+const COMMANDS = { check: cmdCheck, reindex: cmdReindex, 'build-graph': cmdBuildGraph };
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const command = process.argv[2];
   const root = resolveRoot(process.argv.slice(3));
   const commandFn = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
   if (!commandFn) {
-    console.error('Usage: node scripts/kb.mjs <check|reindex> [--root <dir>]');
+    console.error('Usage: node scripts/kb.mjs <check|reindex|build-graph> [--root <dir>]');
     process.exitCode = 2;
   } else if (!root) {
     console.error('Cannot determine KB root: run inside a git repo or pass --root <dir>.');

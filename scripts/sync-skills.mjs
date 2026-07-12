@@ -5,8 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-const MIRRORS = ['.claude/skills/kb-setup', '.agents/skills/kb-setup'];
-const CANONICAL = 'skills/kb-setup';
+const MIRROR_COMPONENTS = [
+  ['.claude', 'skills', 'kb-setup'],
+  ['.agents', 'skills', 'kb-setup'],
+];
+const CANONICAL_COMPONENTS = ['skills', 'kb-setup'];
 
 function repoRoot() {
   try {
@@ -32,10 +35,15 @@ function fsError(action, target, error) {
   return new Error(`${action} ${target}: ${code}${error.message}`, { cause: error });
 }
 
-async function inspectDirectoryPath(root, relativePath, context) {
+function componentPath(components) {
+  return path.join(...components);
+}
+
+async function inspectDirectoryPath(root, components, context) {
+  const relativePath = componentPath(components);
   const absolutePath = path.join(root, relativePath);
   let current = root;
-  for (const component of relativePath.split(path.sep)) {
+  for (const component of components) {
     current = path.join(current, component);
     let stat;
     try {
@@ -130,14 +138,15 @@ export async function syncSkills({ root, check = false } = {}) {
   }
   root = path.resolve(root);
 
-  const canonicalState = await inspectDirectoryPath(root, CANONICAL, 'canonical');
+  const canonicalRelative = componentPath(CANONICAL_COMPONENTS);
+  const canonicalState = await inspectDirectoryPath(root, CANONICAL_COMPONENTS, 'canonical');
   if (canonicalState.issue) {
     throw new Error(
       `canonical path component is ${canonicalState.issue.kind}: ${canonicalState.issue.relativePath}`,
     );
   }
   if (!canonicalState.exists) {
-    throw new Error(`canonical skill is missing or empty: ${CANONICAL}`);
+    throw new Error(`canonical skill is missing or empty: ${canonicalRelative}`);
   }
 
   const canonicalEntries = await buildEntryMap(canonicalState.absolutePath, 'canonical');
@@ -153,14 +162,15 @@ export async function syncSkills({ root, check = false } = {}) {
     sourceFiles.push({ relativePath, content });
   }
   if (sourceFiles.length === 0) {
-    throw new Error(`canonical skill is missing or empty: ${CANONICAL}`);
+    throw new Error(`canonical skill is missing or empty: ${canonicalRelative}`);
   }
 
   const drift = [];
-  const mirrors = MIRRORS.map((mirror) => path.join(root, mirror));
+  const mirrorRelatives = MIRROR_COMPONENTS.map(componentPath);
+  const mirrors = mirrorRelatives.map((mirror) => path.join(root, mirror));
   const mirrorStates = [];
-  for (const mirror of MIRRORS) {
-    mirrorStates.push(await inspectDirectoryPath(root, mirror, 'mirror'));
+  for (const mirrorComponents of MIRROR_COMPONENTS) {
+    mirrorStates.push(await inspectDirectoryPath(root, mirrorComponents, 'mirror'));
   }
 
   if (!check) {
@@ -189,7 +199,7 @@ export async function syncSkills({ root, check = false } = {}) {
   for (let index = 0; index < mirrors.length; index += 1) {
     const mirrorAbs = mirrors[index];
     const mirrorState = mirrorStates[index];
-    const mirrorRelative = MIRRORS[index];
+    const mirrorRelative = mirrorRelatives[index];
     if (mirrorState.issue) {
       drift.push(`${mirrorState.issue.relativePath}: ${mirrorState.issue.kind}`);
       continue;
@@ -246,7 +256,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
         console.log(`✓ skill mirrors in sync (${sourceFileCount} files)`);
       }
     } else {
-      console.log(`✓ synced ${sourceFileCount} files to ${MIRRORS.join(', ')}`);
+      console.log(`✓ synced ${sourceFileCount} files to ${MIRROR_COMPONENTS.map(componentPath).join(', ')}`);
     }
   }).catch((error) => {
     console.error(error.message);

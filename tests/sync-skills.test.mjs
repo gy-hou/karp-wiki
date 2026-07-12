@@ -69,7 +69,13 @@ test('targets both discovery mirrors', async () => {
     await mkdir(path.join(root, '.agents'), { recursive: true });
     await symlink(path.join(root, 'external-agents'), path.join(root, '.agents/skills'));
 
-    await assert.rejects(() => syncSkills({ root, check: false }), /mirror.*symlink/i);
+    const nativeSeparator = path.sep;
+    try {
+      path.sep = '\\';
+      await assert.rejects(() => syncSkills({ root, check: false }), /mirror.*symlink/i);
+    } finally {
+      path.sep = nativeSeparator;
+    }
     assert.equal(
       await readFile(path.join(root, '.claude/skills/kb-setup/sentinel.txt'), 'utf8'),
       'CLAUDE SENTINEL\n',

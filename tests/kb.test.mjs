@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cp, mkdir, readFile, symlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,16 @@ const fx = (name) => path.join(here, 'fixtures', name);
 const errsOf = async (name) => validate(await collectPages(path.join(fx(name), 'wiki')), fx(name));
 const cats = (errs) => new Set(errs.map((e) => e.category));
 const runCheck = (root) => spawnSync(process.execPath, [kbCli, 'check', '--root', root], { encoding: 'utf8' });
+const runBuildGraph = (root) => spawnSync(process.execPath, [kbCli, 'build-graph', '--root', root], { encoding: 'utf8' });
+const graphOutput = (root) => path.join(root, 'data', 'generated', 'graph.json');
+const edgeTuple = (edge) => [edge.from, edge.to, edge.relation];
+const compareTuple = (left, right) => {
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] < right[i]) return -1;
+    if (left[i] > right[i]) return 1;
+  }
+  return 0;
+};
 const page = (frontmatter, body = 'body') => `---\n${frontmatter}\n---\n\n${body}\n`;
 const conceptFrontmatter = (id) => `schema_version: 1
 id: ${id}
@@ -318,8 +329,95 @@ test('reindex CLI succeeds and writes an index for an invalid-but-parseable KB',
   });
 });
 
+test('buildGraph emits exact nodes and typed, deduped, tuple-sorted edges', async () => {
+  const pages = (await collectPages(path.join(fx('good'), 'wiki')))
+    .reverse()
+    .map((item) => ({
+      ...item,
+      sourceIds: Array.isArray(item.sourceIds) ? [...item.sourceIds, ...item.sourceIds] : item.sourceIds,
+      links: [...item.links, ...item.links],
+    }));
+
+  assert.equal(typeof kb.buildGraph, 'function');
+  const graph = kb.buildGraph(pages);
+  assert.equal(graph.schema_version, 1);
+  assert.deepEqual(graph.nodes.map((node) => node.id), [
+    'concept-spaced-repetition',
+    'entity-obsidian',
+    'output-notes',
+    'source-note',
+    'source-shot',
+  ]);
+  for (const node of graph.nodes) assert.deepEqual(Object.keys(node), ['id', 'type', 'title']);
+
+  const tuples = graph.edges.map(edgeTuple);
+  assert.deepEqual(new Set(graph.edges.map((edge) => edge.relation)), new Set(['derived_from', 'links_to']));
+  assert.equal(new Set(tuples.map((tuple) => JSON.stringify(tuple))).size, tuples.length);
+  assert.deepEqual(tuples, [...tuples].sort(compareTuple));
+  assert.equal(tuples.filter((tuple) => compareTuple(tuple, [
+    'output-notes', 'source-note', 'derived_from',
+  ]) === 0).length, 1);
+});
+
+test('buildGraph matches the manually audited golden fixture', async () => {
+  const golden = JSON.parse(await readFile(path.join(fx('good'), 'graph.golden.json'), 'utf8'));
+  assert.equal(typeof kb.buildGraph, 'function');
+  const pages = await collectPages(path.join(fx('good'), 'wiki'));
+  assert.deepEqual(kb.buildGraph(pages), golden);
+});
+
+test('build-graph CLI writes one-newline JSON matching golden from an isolated good fixture', async () => {
+  await withTmpDir(async (root) => {
+    const kbRoot = path.join(root, 'good');
+    await cp(fx('good'), kbRoot, { recursive: true });
+
+    const result = runBuildGraph(kbRoot);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const output = await readFile(graphOutput(kbRoot), 'utf8');
+    assert.ok(output.endsWith('\n') && !output.endsWith('\n\n'));
+    const golden = JSON.parse(await readFile(path.join(fx('good'), 'graph.golden.json'), 'utf8'));
+    assert.deepEqual(JSON.parse(output), golden);
+  });
+});
+
+test('build-graph CLI fails closed on validation errors', async () => {
+  await withTmpDir(async (root) => {
+    const kbRoot = path.join(root, 'bad-broken-link');
+    await cp(fx('bad-broken-link'), kbRoot, { recursive: true });
+
+    const result = runBuildGraph(kbRoot);
+    assert.equal(existsSync(graphOutput(kbRoot)), false);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+  });
+});
+
+test('build-graph CLI fails closed on malformed pages', async () => {
+  await withTmpDir(async (root) => {
+    const kbRoot = path.join(root, 'bad-no-frontmatter');
+    await cp(fx('bad-no-frontmatter'), kbRoot, { recursive: true });
+
+    const result = runBuildGraph(kbRoot);
+    assert.equal(existsSync(graphOutput(kbRoot)), false);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+  });
+});
+
+test('build-graph CLI fails closed on public-git private-page errors', async () => {
+  await withTmpDir(async (root) => {
+    const kbRoot = path.join(root, 'public-git');
+    await cp(fx('good'), kbRoot, { recursive: true });
+    await writeTree(kbRoot, {
+      '.karp-wiki/config.json': '{"storage":{"mode":"public-git"}}\n',
+    });
+
+    const result = runBuildGraph(kbRoot);
+    assert.equal(existsSync(graphOutput(kbRoot)), false);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+  });
+});
+
 test('CLI rejects an inherited-property command with usage exit 2', () => {
   const result = spawnSync(process.execPath, [kbCli, 'toString', '--root', fx('good')], { encoding: 'utf8' });
   assert.equal(result.status, 2, result.stdout + result.stderr);
-  assert.match(result.stdout + result.stderr, /Usage: node scripts\/kb\.mjs <check\|reindex>/);
+  assert.match(result.stdout + result.stderr, /Usage: node scripts\/kb\.mjs <check\|reindex(?:\|build-graph)?>/);
 });

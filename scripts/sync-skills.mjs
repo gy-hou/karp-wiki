@@ -32,28 +32,95 @@ function fsError(action, target, error) {
   return new Error(`${action} ${target}: ${code}${error.message}`, { cause: error });
 }
 
-async function walk(
-  dir,
-  { missingIsEmpty = false, includeNonRegular = false, context = 'directory' } = {},
-) {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    if (missingIsEmpty && error.code === 'ENOENT') return [];
-    throw fsError(`Cannot read ${context}`, dir, error);
-  }
-
-  const out = [];
-  for (const entry of entries.sort((a, b) => compareCodePoints(a.name, b.name))) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      out.push(...await walk(full, { includeNonRegular, context }));
-    } else if (entry.isFile() || includeNonRegular) {
-      out.push(full);
+async function inspectDirectoryPath(root, relativePath, context) {
+  const absolutePath = path.join(root, relativePath);
+  let current = root;
+  for (const component of relativePath.split(path.sep)) {
+    current = path.join(current, component);
+    let stat;
+    try {
+      stat = await lstat(current);
+    } catch (error) {
+      if (error.code === 'ENOENT') return { absolutePath, exists: false, issue: null };
+      throw fsError(`Cannot inspect ${context} path component`, current, error);
+    }
+    if (stat.isSymbolicLink()) {
+      return {
+        absolutePath,
+        exists: true,
+        issue: { kind: 'symlink', relativePath: path.relative(root, current) },
+      };
+    }
+    if (!stat.isDirectory()) {
+      return {
+        absolutePath,
+        exists: true,
+        issue: { kind: 'not a directory', relativePath: path.relative(root, current) },
+      };
     }
   }
-  return out;
+  return { absolutePath, exists: true, issue: null };
+}
+
+function entryType(stat) {
+  if (stat.isDirectory()) return 'directory';
+  if (stat.isFile()) return 'file';
+  if (stat.isSymbolicLink()) return 'symlink';
+  return 'non-regular';
+}
+
+async function buildEntryMap(rootDir, context) {
+  const entryMap = new Map();
+
+  async function visit(directory, parentRelative = '') {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      throw fsError(`Cannot read ${context} directory`, directory, error);
+    }
+
+    for (const entry of entries.sort((left, right) => compareCodePoints(left.name, right.name))) {
+      const absolutePath = path.join(directory, entry.name);
+      const relativePath = parentRelative
+        ? path.join(parentRelative, entry.name)
+        : entry.name;
+      let stat;
+      try {
+        stat = await lstat(absolutePath);
+      } catch (error) {
+        throw fsError(`Cannot inspect ${context} entry`, absolutePath, error);
+      }
+      const type = entryType(stat);
+      entryMap.set(relativePath, { absolutePath, type });
+      if (type === 'directory') await visit(absolutePath, relativePath);
+    }
+  }
+
+  await visit(rootDir);
+  return entryMap;
+}
+
+function sortedEntries(entryMap) {
+  return [...entryMap.entries()].sort(([left], [right]) => compareCodePoints(left, right));
+}
+
+function driftKind(type, expectedType) {
+  if (type === 'symlink') return 'symlink';
+  return expectedType === 'directory' ? 'not a directory' : 'not a regular file';
+}
+
+function expectedMirrorEntries(sourceFiles) {
+  const expected = new Map();
+  for (const sourceFile of sourceFiles) {
+    let parent = path.dirname(sourceFile.relativePath);
+    while (parent !== '.') {
+      expected.set(parent, { type: 'directory' });
+      parent = path.dirname(parent);
+    }
+    expected.set(sourceFile.relativePath, { type: 'file' });
+  }
+  return sortedEntries(expected);
 }
 
 export async function syncSkills({ root, check = false } = {}) {
@@ -61,91 +128,109 @@ export async function syncSkills({ root, check = false } = {}) {
     root = repoRoot();
     if (!root) throw new Error('Cannot determine repo root; pass { root }.');
   }
+  root = path.resolve(root);
 
-  const srcDir = path.join(root, CANONICAL);
-  const srcFiles = (await walk(srcDir, {
-    missingIsEmpty: true,
-    context: 'canonical directory',
-  })).sort(compareCodePoints);
-  if (srcFiles.length === 0) {
+  const canonicalState = await inspectDirectoryPath(root, CANONICAL, 'canonical');
+  if (canonicalState.issue) {
+    throw new Error(
+      `canonical path component is ${canonicalState.issue.kind}: ${canonicalState.issue.relativePath}`,
+    );
+  }
+  if (!canonicalState.exists) {
+    throw new Error(`canonical skill is missing or empty: ${CANONICAL}`);
+  }
+
+  const canonicalEntries = await buildEntryMap(canonicalState.absolutePath, 'canonical');
+  const sourceFiles = [];
+  for (const [relativePath, entry] of sortedEntries(canonicalEntries)) {
+    if (entry.type !== 'file') continue;
+    let content;
+    try {
+      content = await readFile(entry.absolutePath);
+    } catch (error) {
+      throw fsError('Cannot read canonical file', entry.absolutePath, error);
+    }
+    sourceFiles.push({ relativePath, content });
+  }
+  if (sourceFiles.length === 0) {
     throw new Error(`canonical skill is missing or empty: ${CANONICAL}`);
   }
 
   const drift = [];
   const mirrors = MIRRORS.map((mirror) => path.join(root, mirror));
-  const srcRel = srcFiles.map((file) => path.relative(srcDir, file)).sort(compareCodePoints);
+  const mirrorStates = [];
+  for (const mirror of MIRRORS) {
+    mirrorStates.push(await inspectDirectoryPath(root, mirror, 'mirror'));
+  }
 
-  for (const mirrorAbs of mirrors) {
-    if (!check) await rm(mirrorAbs, { recursive: true, force: true });
+  if (!check) {
+    const invalidMirror = mirrorStates.find((state) => state.issue);
+    if (invalidMirror) {
+      throw new Error(
+        `mirror path component is ${invalidMirror.issue.kind}: ${invalidMirror.issue.relativePath}`,
+      );
+    }
 
-    let mirrorStat = null;
-    if (check) {
-      try {
-        mirrorStat = await lstat(mirrorAbs);
-      } catch (error) {
-        if (error.code !== 'ENOENT') {
-          throw fsError('Cannot inspect mirror root', mirrorAbs, error);
-        }
+    for (const mirrorAbs of mirrors) {
+      await rm(mirrorAbs, { recursive: true, force: true });
+      for (const sourceFile of sourceFiles) {
+        const destFile = path.join(mirrorAbs, sourceFile.relativePath);
+        await mkdir(path.dirname(destFile), { recursive: true });
+        await writeFile(destFile, sourceFile.content);
       }
-      if (mirrorStat && !mirrorStat.isDirectory()) {
-        const kind = mirrorStat.isSymbolicLink() ? 'symlink' : 'not a directory';
-        drift.push(`${path.relative(root, mirrorAbs)}: ${kind}`);
+    }
+    return { mirrors, drift, sourceFileCount: sourceFiles.length };
+  }
+
+  const expectedEntries = expectedMirrorEntries(sourceFiles);
+  const expectedPaths = new Set(expectedEntries.map(([relativePath]) => relativePath));
+  const sourceFilesByPath = new Map(sourceFiles.map((file) => [file.relativePath, file]));
+
+  for (let index = 0; index < mirrors.length; index += 1) {
+    const mirrorAbs = mirrors[index];
+    const mirrorState = mirrorStates[index];
+    const mirrorRelative = MIRRORS[index];
+    if (mirrorState.issue) {
+      drift.push(`${mirrorState.issue.relativePath}: ${mirrorState.issue.kind}`);
+      continue;
+    }
+
+    const mirrorEntries = mirrorState.exists
+      ? await buildEntryMap(mirrorAbs, 'mirror')
+      : new Map();
+    for (const [relativePath, expectedEntry] of expectedEntries) {
+      const displayPath = path.join(mirrorRelative, relativePath);
+      const mirrorEntry = mirrorEntries.get(relativePath);
+      if (!mirrorEntry) {
+        drift.push(`${displayPath}: missing`);
         continue;
       }
-    }
-
-    for (const srcFile of srcFiles) {
-      const rel = path.relative(srcDir, srcFile);
-      const destFile = path.join(mirrorAbs, rel);
-      const srcBuf = await readFile(srcFile);
-
-      if (check) {
-        let destStat;
-        try {
-          destStat = await lstat(destFile);
-        } catch (error) {
-          if (error.code === 'ENOENT') {
-            drift.push(`${path.relative(root, destFile)}: missing`);
-            continue;
-          }
-          throw fsError('Cannot inspect mirror entry', destFile, error);
-        }
-        if (!destStat.isFile()) {
-          const kind = destStat.isSymbolicLink() ? 'symlink' : 'not a regular file';
-          drift.push(`${path.relative(root, destFile)}: ${kind}`);
-          continue;
-        }
-
+      if (mirrorEntry.type !== expectedEntry.type) {
+        drift.push(`${displayPath}: ${driftKind(mirrorEntry.type, expectedEntry.type)}`);
+        continue;
+      }
+      if (expectedEntry.type === 'file') {
         let destBuf;
         try {
-          destBuf = await readFile(destFile);
+          destBuf = await readFile(mirrorEntry.absolutePath);
         } catch (error) {
-          throw fsError('Cannot read mirror entry', destFile, error);
+          throw fsError('Cannot read mirror entry', mirrorEntry.absolutePath, error);
         }
-        if (!srcBuf.equals(destBuf)) {
-          drift.push(`${path.relative(root, destFile)}: differs`);
+        const sourceFile = sourceFilesByPath.get(relativePath);
+        if (!sourceFile.content.equals(destBuf)) {
+          drift.push(`${displayPath}: differs`);
         }
-      } else {
-        await mkdir(path.dirname(destFile), { recursive: true });
-        await writeFile(destFile, srcBuf);
       }
     }
 
-    if (check && mirrorStat) {
-      const mirrorEntries = await walk(mirrorAbs, {
-        includeNonRegular: true,
-        context: 'mirror directory',
-      });
-      for (const file of mirrorEntries.sort(compareCodePoints)) {
-        const rel = path.relative(mirrorAbs, file);
-        if (!srcRel.includes(rel)) {
-          drift.push(`${path.join(path.relative(root, mirrorAbs), rel)}: extra`);
-        }
+    for (const [relativePath, entry] of sortedEntries(mirrorEntries)) {
+      if (!expectedPaths.has(relativePath) && entry.type !== 'directory') {
+        drift.push(`${path.join(mirrorRelative, relativePath)}: extra`);
       }
     }
   }
 
-  return { mirrors, drift, sourceFileCount: srcFiles.length };
+  return { mirrors, drift, sourceFileCount: sourceFiles.length };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

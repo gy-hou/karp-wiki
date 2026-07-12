@@ -16,6 +16,7 @@ test('write/check mirrors every regular file and reports stable missing/extra dr
       ...CANON,
       'skills/kb-setup/.DS_Store': 'REGULAR FILE METADATA',
     });
+    await mkdir(path.join(root, 'skills/kb-setup/empty-reference-dir'));
     const writeResult = await syncSkills({ root, check: false });
     const { drift, sourceFileCount } = await syncSkills({ root, check: true });
     assert.deepEqual(drift, []);
@@ -58,6 +59,26 @@ test('targets both discovery mirrors', async () => {
     const { drift } = await syncSkills({ root, check: true });
     assert.deepEqual(drift, ['.agents/skills/kb-setup: symlink']);
   });
+
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      ...CANON,
+      '.claude/skills/kb-setup/sentinel.txt': 'CLAUDE SENTINEL\n',
+      'external-agents/kb-setup/sentinel.txt': 'AGENTS SENTINEL\n',
+    });
+    await mkdir(path.join(root, '.agents'), { recursive: true });
+    await symlink(path.join(root, 'external-agents'), path.join(root, '.agents/skills'));
+
+    await assert.rejects(() => syncSkills({ root, check: false }), /mirror.*symlink/i);
+    assert.equal(
+      await readFile(path.join(root, '.claude/skills/kb-setup/sentinel.txt'), 'utf8'),
+      'CLAUDE SENTINEL\n',
+    );
+    assert.equal(
+      await readFile(path.join(root, 'external-agents/kb-setup/sentinel.txt'), 'utf8'),
+      'AGENTS SENTINEL\n',
+    );
+  });
 });
 
 test('--check DETECTS a deliberately corrupted mirror (does not self-heal)', async () => {
@@ -70,13 +91,21 @@ test('--check DETECTS a deliberately corrupted mirror (does not self-heal)', asy
     await rm(expectedSymlink);
     await symlink(path.join(root, 'skills/kb-setup/SKILL.md'), expectedSymlink);
     const outsideDir = path.join(root, 'outside');
-    await writeTree(outsideDir, { 'must-not-be-traversed.txt': 'outside\n' });
+    await writeTree(outsideDir, {
+      'schema.md': CANON['skills/kb-setup/references/schema.md'],
+      'must-not-be-traversed.txt': 'outside\n',
+    });
     const extraSymlink = path.join(root, '.agents/skills/kb-setup/linked-extra');
     await symlink(outsideDir, extraSymlink);
+    const expectedParent = path.join(root, '.claude/skills/kb-setup/references');
+    await rm(expectedParent, { recursive: true });
+    await symlink(outsideDir, expectedParent);
 
     const { drift } = await syncSkills({ root, check: true });
 
     assert.ok(drift.some((entry) => entry.includes('SKILL.md')));
+    assert.ok(drift.includes('.claude/skills/kb-setup/references: symlink'));
+    assert.ok(drift.includes('.claude/skills/kb-setup/references/schema.md: missing'));
     assert.ok(drift.includes('.agents/skills/kb-setup/SKILL.md: symlink'));
     assert.ok(drift.includes('.agents/skills/kb-setup/linked-extra: extra'));
     assert.ok(!drift.some((entry) => entry.includes('must-not-be-traversed.txt')));
@@ -112,6 +141,23 @@ test('empty/missing canonical throws (never wipes mirrors then reports success)'
     await mkdir(path.join(root, 'skills/kb-setup'), { recursive: true });
     await assert.rejects(() => syncSkills({ root, check: false }), /canonical/i);
     await assertSentinelsUnchanged(root);
+  });
+
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      ...sentinels,
+      'outside-canonical/SKILL.md': CANON['skills/kb-setup/SKILL.md'],
+      'outside-canonical/outside-sentinel.txt': 'OUTSIDE SENTINEL\n',
+    });
+    await mkdir(path.join(root, 'skills'), { recursive: true });
+    await symlink(path.join(root, 'outside-canonical'), path.join(root, 'skills/kb-setup'));
+
+    await assert.rejects(() => syncSkills({ root, check: false }), /canonical.*symlink/i);
+    await assertSentinelsUnchanged(root);
+    assert.equal(
+      await readFile(path.join(root, 'outside-canonical/outside-sentinel.txt'), 'utf8'),
+      'OUTSIDE SENTINEL\n',
+    );
   });
 
   await withTmpDir(async (root) => {

@@ -440,7 +440,7 @@ const COMMANDS = { check: cmdCheck, reindex: cmdReindex };
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const command = process.argv[2];
   const root = resolveRoot(process.argv.slice(3));
-  const commandFn = COMMANDS[command];
+  const commandFn = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
   if (!commandFn) {
     console.error('Usage: node scripts/kb.mjs <check|reindex> [--root <dir>]');
     process.exitCode = 2;

@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, symlink } from 'node:fs/promises';
+import { cp, mkdir, readFile, symlink } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseFrontmatter, extractWikiLinks, resolveRoot,
-  collectPages, findMalformed, validate, indexCoverageErrors, visibilityErrors, sha256File,
+  collectPages, findMalformed, validate, parseIndexIds, indexCoverageErrors, visibilityErrors, sha256File,
 } from '../scripts/kb.mjs';
+import * as kb from '../scripts/kb.mjs';
 import { withTmpDir, writeTree } from './helpers/tmp.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -266,4 +267,50 @@ test('review regression: CLI rejects an unknown storage mode', async () => {
 
 test('review regression: resolveRoot fails for --root without a value', () => {
   assert.equal(resolveRoot(['--root']), null);
+});
+
+test('buildIndex groups by frozen type order and is deterministic/idempotent', async () => {
+  const pages = await collectPages(path.join(fx('good'), 'wiki'));
+  const once = kb.buildIndex(pages);
+  assert.equal(once, kb.buildIndex(pages));
+  assert.match(once, /- \[\[concept-spaced-repetition\]\] — /);
+
+  const headings = ['## Concepts', '## Entities', '## Sources', '## Outputs'];
+  const offsets = headings.map((heading) => once.indexOf(heading));
+  assert.ok(offsets.every((offset) => offset !== -1), once);
+  assert.deepEqual(offsets, [...offsets].sort((a, b) => a - b));
+});
+
+test('buildIndex round-trips through parseIndexIds to the full page set', async () => {
+  const pages = await collectPages(path.join(fx('good'), 'wiki'));
+  const ids = new Set(parseIndexIds(kb.buildIndex(pages)));
+  assert.deepEqual(ids, new Set(pages.map((page) => page.id)));
+});
+
+test('reindex CLI is byte-idempotent on an isolated good fixture', async () => {
+  await withTmpDir(async (root) => {
+    const kbRoot = path.join(root, 'good');
+    await cp(fx('good'), kbRoot, { recursive: true });
+
+    const first = spawnSync(process.execPath, [kbCli, 'reindex', '--root', kbRoot], { encoding: 'utf8' });
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    const firstIndex = await readFile(path.join(kbRoot, 'wiki/index.md'));
+
+    const second = spawnSync(process.execPath, [kbCli, 'reindex', '--root', kbRoot], { encoding: 'utf8' });
+    assert.equal(second.status, 0, second.stdout + second.stderr);
+    const secondIndex = await readFile(path.join(kbRoot, 'wiki/index.md'));
+
+    assert.deepEqual(secondIndex, firstIndex);
+  });
+});
+
+test('reindex CLI succeeds and writes an index for an invalid-but-parseable KB', async () => {
+  await withTmpDir(async (root) => {
+    const kbRoot = path.join(root, 'bad-broken-link');
+    await cp(fx('bad-broken-link'), kbRoot, { recursive: true });
+
+    const result = spawnSync(process.execPath, [kbCli, 'reindex', '--root', kbRoot], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(await readFile(path.join(kbRoot, 'wiki/index.md'), 'utf8'), /- \[\[concept-a\]\] — /);
+  });
 });

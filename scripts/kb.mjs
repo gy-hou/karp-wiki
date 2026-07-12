@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // karp-wiki deterministic kernel. Zero external deps. Node >= 20.
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -350,6 +350,33 @@ export function visibilityErrors(pages, mode) {
     }));
 }
 
+const TYPE_TITLES = { concept: 'Concepts', entity: 'Entities', source: 'Sources', output: 'Outputs' };
+
+export function buildIndex(pages) {
+  const lines = [
+    '# 知识库索引', '',
+    '> 本文件由 `node scripts/kb.mjs reindex` 生成,请勿手工编辑。',
+    '> 每页一行:`- [[id]] — summary`。', '',
+  ];
+  for (const type of TYPES) {
+    lines.push(`## ${TYPE_TITLES[type]}`, '');
+    const group = pages.filter((page) => page.type === type).sort((a, b) => {
+      const aId = String(a.id);
+      const bId = String(b.id);
+      return aId < bId ? -1 : aId > bId ? 1 : 0;
+    });
+    for (const page of group) lines.push(`- [[${page.id}]] — ${page.summary}`);
+    lines.push('');
+  }
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`;
+}
+
+async function cmdReindex(root) {
+  const pages = await collectPages(path.join(root, 'wiki'));
+  await writeFile(path.join(root, 'wiki', 'index.md'), buildIndex(pages), 'utf8');
+  console.log(`✓ reindex: ${pages.length} page(s) -> wiki/index.md`);
+}
+
 async function readConfigMode(root) {
   try {
     const config = JSON.parse(await readFile(path.join(root, '.karp-wiki', 'config.json'), 'utf8'));
@@ -408,18 +435,21 @@ async function assertKb(root) {
   }
 }
 
+const COMMANDS = { check: cmdCheck, reindex: cmdReindex };
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const command = process.argv[2];
   const root = resolveRoot(process.argv.slice(3));
-  if (command !== 'check') {
-    console.error('Usage: node scripts/kb.mjs check [--root <dir>]');
+  const commandFn = COMMANDS[command];
+  if (!commandFn) {
+    console.error('Usage: node scripts/kb.mjs <check|reindex> [--root <dir>]');
     process.exitCode = 2;
   } else if (!root) {
     console.error('Cannot determine KB root: run inside a git repo or pass --root <dir>.');
     process.exitCode = 2;
   } else {
     assertKb(root)
-      .then(() => cmdCheck(root))
+      .then(() => commandFn(root))
       .catch((error) => {
         console.error(error.message);
         process.exitCode = 1;

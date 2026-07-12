@@ -271,7 +271,9 @@ test('review regression: resolveRoot fails for --root without a value', () => {
 
 test('buildIndex groups by frozen type order and is deterministic/idempotent', async () => {
   const pages = await collectPages(path.join(fx('good'), 'wiki'));
-  const once = kb.buildIndex(pages);
+  const shuffled = [...pages].reverse();
+  const once = kb.buildIndex(shuffled);
+  assert.equal(once, kb.buildIndex(shuffled));
   assert.equal(once, kb.buildIndex(pages));
   assert.match(once, /- \[\[concept-spaced-repetition\]\] — /);
 
@@ -279,6 +281,7 @@ test('buildIndex groups by frozen type order and is deterministic/idempotent', a
   const offsets = headings.map((heading) => once.indexOf(heading));
   assert.ok(offsets.every((offset) => offset !== -1), once);
   assert.deepEqual(offsets, [...offsets].sort((a, b) => a - b));
+  assert.ok(once.indexOf('- [[source-note]]') < once.indexOf('- [[source-shot]]'), once);
 });
 
 test('buildIndex round-trips through parseIndexIds to the full page set', async () => {
@@ -313,4 +316,10 @@ test('reindex CLI succeeds and writes an index for an invalid-but-parseable KB',
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(await readFile(path.join(kbRoot, 'wiki/index.md'), 'utf8'), /- \[\[concept-a\]\] — /);
   });
+});
+
+test('CLI rejects an inherited-property command with usage exit 2', () => {
+  const result = spawnSync(process.execPath, [kbCli, 'toString', '--root', fx('good')], { encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stdout + result.stderr);
+  assert.match(result.stdout + result.stderr, /Usage: node scripts\/kb\.mjs <check\|reindex>/);
 });

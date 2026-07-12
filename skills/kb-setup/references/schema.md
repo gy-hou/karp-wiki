@@ -65,6 +65,7 @@
 以下约束与 `security.md` 一致，并由 `kb.mjs` 强制执行：
 
 - `raw_path` 解析和规范化后的路径不得越过 KB 根；绝对路径和任何路径穿越均无效。
+- `raw_path` 解析后必须位于 KB 根的 `raw/` 子树之下；否则 `kb.mjs` 报 `raw_path` 错误。
 - `raw_path` 不得通过 symlink 指向 KB 根之外；解析路径上的 symlink 后，最终目标仍必须位于 KB 根内。
 - 同一个 `raw_sha256` 不得对应多个 source 页面，以保证去重和幂等。
 - `kb.mjs check` 与 `kb.mjs build-graph` 遇到任何校验失败都必须以非零状态退出。

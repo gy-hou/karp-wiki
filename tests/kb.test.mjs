@@ -419,5 +419,5 @@ test('build-graph CLI fails closed on public-git private-page errors', async () 
 test('CLI rejects an inherited-property command with usage exit 2', () => {
   const result = spawnSync(process.execPath, [kbCli, 'toString', '--root', fx('good')], { encoding: 'utf8' });
   assert.equal(result.status, 2, result.stdout + result.stderr);
-  assert.match(result.stdout + result.stderr, /Usage: node scripts\/kb\.mjs <check\|reindex(?:\|build-graph)?>/);
+  assert.match(result.stdout + result.stderr, /Usage: node scripts\/kb\.mjs <check\|reindex\|build-graph>/);
 });

@@ -157,12 +157,36 @@ node -e 'const g=require("./data/generated/graph.json"); const k=e=>`${e.from}|$
 
 ### 9. public-git 隐私硬门
 
+从 good fixture 创建独立临时库；其中现有页面是 `content_visibility: private`，再把 storage mode 设为 `public-git`。`expect_nonzero` 会捕获并检查真实退出码；若任一命令意外返回 `0`，整个 gate 立即失败。两次 CLI 调用后都断言 graph 不存在：
+
 ```bash
 set -euo pipefail
-node --test --test-name-pattern='public-git|visibilityErrors' tests/kb.test.mjs
+CASE=$(mktemp -d "${TMPDIR:-/tmp}/karp-public-git.XXXXXX")
+cp -R tests/fixtures/good/. "$CASE/"
+mkdir -p "$CASE/.karp-wiki"
+printf '%s\n' '{"storage":{"mode":"public-git"}}' > "$CASE/.karp-wiki/config.json"
+GRAPH="$CASE/data/generated/graph.json"
+rg -q '^content_visibility: private$' "$CASE/wiki" --glob '*.md'
+test ! -e "$GRAPH"
+expect_nonzero() {
+  label=$1
+  shift
+  if "$@"; then
+    echo "unexpected success: $label" >&2
+    return 1
+  else
+    exit_code=$?
+    test "$exit_code" -ne 0
+    printf '%s failed as required (exit=%s)\n' "$label" "$exit_code"
+  fi
+}
+expect_nonzero check node scripts/kb.mjs check --root "$CASE"
+test ! -e "$GRAPH"
+expect_nonzero build-graph node scripts/kb.mjs build-graph --root "$CASE"
+test ! -e "$GRAPH"
 ```
 
-通过条件：当 `.karp-wiki/config.json` 的 `storage.mode=public-git` 且任一页面为 `content_visibility: private` 时，`check` 与 `build-graph` 均非零退出；这不是 warning。
+通过条件：输出同时记录 `check failed as required` 与 `build-graph failed as required`，两个退出码都非零，且 `graph.json` 在检查前后始终不存在。这是 CLI 可独立复现的 fail-closed 隐私硬门，不是 warning，也不只依赖 `visibilityErrors` 单元函数。
 
 ### 10. 文本、真实图片与音频边界
 
@@ -182,7 +206,7 @@ rg -q '^media_type: audio$' examples/wiki/sources/source-podcast-learning.md
 rg -q '^provenance: transcript-of-audio$' examples/wiki/sources/source-podcast-learning.md
 ```
 
-视觉理解必须另开具备视觉能力的 Agent fresh session，让 Agent 读取图片并记录它实际看见的词语、数字或关系；再由操作员对照图片人工核验。仅凭 `check --root examples`、图片存在或 hash 相符，不能声明视觉理解通过。若运行时没有视觉能力，本项的视觉部分记为“未通过/未执行”，不得从文件名、example source 或 README 反推图片内容。
+下文的“图片 fresh-session trial”规定了固定 prompt、独立 case 和 image-specific 断言。视觉理解必须由具备视觉能力的当前 Agent runtime 实际读取图片，并记录它看见的词语、数字或关系；再由操作员对照图片人工核验。仅凭 `check --root examples`、图片存在、hash 相符或 source 结构正确，不能声明视觉理解通过。若运行时没有视觉能力，本项的视觉部分记为“未通过/未执行”，不得从文件名、example source 或 README 反推图片内容。
 
 ### 11. 双端只比较结构不变量
 
@@ -326,15 +350,76 @@ test "$RAW_SHA_AFTER" = "$SOURCE_SHA"
 
 通过记录还必须显示 Agent 在写页后按 `reindex` → `check` → `build-graph` 顺序运行；事后补跑上述命令只能证明最终结构，不能替代会话内工作流证据。
 
+### 图片 fresh-session trial
+
+Claude Code 与 Codex 各使用一个新隔离副本。图片从同一待验收 commit 的 example 复制到 case 的 `raw/images/`，因此两端输入 bytes 相同，同时不会复用 `examples/wiki` 中已有的 source 页面：
+
+```bash
+set -euo pipefail
+REPO=${REPO:-$(git rev-parse --show-toplevel)}
+EVIDENCE_DIR=${EVIDENCE_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/karp-image-evidence.XXXXXX")}
+prepare_image_case() {
+  label=$1
+  root=$(mktemp -d "${TMPDIR:-/tmp}/karp-${label}.XXXXXX")
+  git -C "$REPO" archive HEAD | tar -x -C "$root"
+  mkdir -p "$root/raw/images"
+  cp "$root/examples/raw/images/note-shot.png" "$root/raw/images/note-shot.png"
+  shasum -a 256 "$root/raw/images/note-shot.png" > "$EVIDENCE_DIR/${label}.raw-before.sha256"
+  printf '%s\n' "$root"
+}
+CLAUDE_IMAGE=$(prepare_image_case claude-image)
+CODEX_IMAGE=$(prepare_image_case codex-image)
+printf 'claude_image=%s\ncodex_image=%s\nevidence=%s\n' "$CLAUDE_IMAGE" "$CODEX_IMAGE" "$EVIDENCE_DIR"
+```
+
+分别在 `CLAUDE_IMAGE` 与 `CODEX_IMAGE` 开启全新会话。Claude Code 先发送 `/kb-setup`，Codex 先发送 `$kb-setup`，然后两端都逐字发送以下固定图片摄入 prompt：
+
+```text
+把 raw/images/note-shot.png 摄入知识库。只记录你在当前运行时实际看见的图片内容；不要从文件名、README、examples/wiki 或既有 source 页面推断。
+```
+
+固定回答沿用文本 trial，但首批模态改为 `image`，首份资料改为 `raw/images/note-shot.png`，storage mode 仍为 `local-only`。保存完整会话记录；它必须说明当前 runtime 是否有实际视觉能力。若没有视觉能力或没有实际读取图片，停止并把视觉验收记为未通过，不得伪造摘要。
+
+在每个成功的 image case 根目录运行以下结构管道断言。它查找且只允许一个引用该 raw path 的 source，确认 `type`、`media_type`、raw path/hash、reindex 后的 index 条目、`check`、graph 和恰好一条目标 ingest log：
+
+```bash
+set -euo pipefail
+IMAGE_RAW=raw/images/note-shot.png
+test -n "${IMAGE_BEFORE_FILE:?set IMAGE_BEFORE_FILE to the matching *.raw-before.sha256 evidence file}"
+IMAGE_SHA_BEFORE=$(awk '{print $1}' "$IMAGE_BEFORE_FILE")
+IMAGE_SHA_AFTER=$(shasum -a 256 "$IMAGE_RAW" | awk '{print $1}')
+test "$IMAGE_SHA_BEFORE" = "$IMAGE_SHA_AFTER"
+IMAGE_SOURCE_COUNT=$(rg -l '^raw_path: raw/images/note-shot\.png$' wiki/sources --glob '*.md' | wc -l | tr -d ' ')
+test "$IMAGE_SOURCE_COUNT" -eq 1
+IMAGE_SOURCE=$(rg -l '^raw_path: raw/images/note-shot\.png$' wiki/sources --glob '*.md')
+test -f "$IMAGE_SOURCE"
+rg -q '^type: source$' "$IMAGE_SOURCE"
+rg -q '^media_type: image$' "$IMAGE_SOURCE"
+rg -q '^raw_path: raw/images/note-shot\.png$' "$IMAGE_SOURCE"
+IMAGE_SOURCE_SHA=$(node -e 'const fs=require("node:fs"); const m=fs.readFileSync(process.argv[1],"utf8").match(/^raw_sha256:\s*["\x27]?([0-9a-f]{64})["\x27]?\s*$/m); if(!m) process.exit(1); process.stdout.write(m[1])' "$IMAGE_SOURCE")
+test "$IMAGE_SOURCE_SHA" = "$IMAGE_SHA_AFTER"
+IMAGE_SOURCE_ID=$(sed -nE 's/^id: ([a-z0-9][a-z0-9-]*)$/\1/p' "$IMAGE_SOURCE")
+test -n "$IMAGE_SOURCE_ID"
+node scripts/kb.mjs reindex
+node scripts/kb.mjs check
+rg -Fq -- "- [[$IMAGE_SOURCE_ID]]" wiki/index.md
+node scripts/kb.mjs build-graph
+test "$(rg '^## .* ingest \|' wiki/log.md | rg -v 'setup-complete' | wc -l | tr -d ' ')" -eq 1
+```
+
+运行前把 `IMAGE_BEFORE_FILE` 指向该 case 在准备阶段保存的 `*.raw-before.sha256`，断言会证明 Agent 未修改图片 bytes。上述命令只能证明文件/hash/结构端到端通过；图片内容理解的通过证据仍是当前 Agent runtime 的会话观察与人工对照，两类证据必须分别记录。
+
 ### 中断与 resume trial
 
 Claude Code 和 Codex 各准备一个额外独立 case，显式调用 setup。等某一步 checkpoint 已原子落盘且 `state=in_progress` 时终止会话，不手工编辑配置。中断后先记录：
 
 ```bash
-node -e 'const c=require("./.karp-wiki/config.json"); const s=c.setup; const seen=new Set(s.completed_steps); if(c.state!=="in_progress"||seen.size!==s.completed_steps.length) process.exit(1); console.log(JSON.stringify({current_step:s.current_step,completed_steps:s.completed_steps}))'
+node -e 'const c=require("./.karp-wiki/config.json"); const s=c.setup; const order=s._step_order; const done=s.completed_steps; const arrays=Array.isArray(order)&&Array.isArray(done); const unique=arrays&&new Set(done).size===done.length; const strictPrefix=arrays&&done.length<order.length&&done.every((step,index)=>step===order[index]); const firstPending=strictPrefix?order[done.length]:undefined; const currentIsFirstPending=typeof firstPending==="string"&&s.current_step===firstPending; if(c.state!=="in_progress"||!unique||!strictPrefix||!currentIsFirstPending) process.exit(1); console.log(JSON.stringify({current_step:s.current_step,completed_steps:done,first_pending:firstPending}))'
 ```
 
-再开启全新会话，使用 `/kb-setup` 或 `$kb-setup` 和同一组固定回答。验收会话必须说明它从 `setup.current_step` / 首个 pending step 恢复，并跳过 `completed_steps`。恢复完成后运行第 3 项的完整状态断言；比较日志和 source，确认没有重复副作用。
+该断言要求 `completed_steps` 无重复并严格等于 `_step_order` 的有序前缀；在 `in_progress` 状态下还必须至少有一个 pending step，且 `current_step` 必须恰好是 `_step_order[completed_steps.length]`，因此反序、跳步、未知 step、未知 `current_step` 或指向非首个 pending step 都会失败。
+
+再开启全新会话，使用 `/kb-setup` 或 `$kb-setup` 和同一组固定回答。验收会话必须说明它从已验证的首个 pending step 恢复，并跳过 `completed_steps`。恢复完成后运行第 3 项的最终 `state=complete` 完整状态断言；最终状态验证不能替代上述中断时 checkpoint 证明。比较日志和 source，确认没有重复副作用。
 
 ### 触发率与结果记录
 

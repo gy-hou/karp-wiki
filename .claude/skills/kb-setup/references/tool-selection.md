@@ -30,7 +30,7 @@ setup 必须根据实际环境选择一套**最小够用**的工具组合，而�
 | `versioning` | Git mode 选 `git`；`local-only` 可选 `git` 或 `none` | `private-git`/`public-git` 无 Git 时阻断；不得从 remote 猜隐私。 |
 | `image_ingest` | Agent 已公开的 image-understanding；若只有 OCR，则仅提取可见文字并明确局限；否则 `user-description` | 不得把 OCR 说成完整视觉理解，不得编造图片内容。 |
 | `audio_ingest` | 固定 `user-provided-transcript` | 即使发现本地 ASR，v1 也不自动选择或执行。 |
-| `graph_view` | 用户希望可视化且本机有 Obsidian 时选 `obsidian`；否则 `markdown+graph.json` | 图谱浏览器可选，不阻断知识库。 |
+| `graph_view` | 需要 typed-edge/visibility 过滤时选内置 `karp-web`；偏好编辑器内 backlinks 且本机有 Obsidian 时选 `obsidian`；否则 `markdown+graph.json` | `karp-web` 复用必需的 Node.js，无额外依赖；图谱浏览器不阻断知识库。 |
 
 文档提取、网页检索、connector 等属于按需能力：只有 `interview` 的输入类型/用途确实需要、当前会话真实可用且用户授权相应外部读取时，才加入 inventory 并选用。首次本地 ingest 默认不联网，不因工具可见就自动使用外部服务。
 

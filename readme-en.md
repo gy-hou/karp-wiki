@@ -85,7 +85,7 @@ Page-level frontmatter independently sets `content_visibility` to `private` or `
 - Search prefers local `rg`, then the current Agent's file-search capability, then a Node.js filesystem fallback.
 - `private-git` and `public-git` select Git; `local-only` may use no version control.
 - Image understanding is selected only when the current Agent really has vision capability; v1 audio always uses a user-provided transcript.
-- Obsidian may be selected as the graph viewer when installed; otherwise Markdown and `graph.json` remain available.
+- The built-in `karp-web` viewer supports typed-edge and visibility filters; Obsidian Graph View may also be selected when installed, with Markdown and `graph.json` as the minimum fallback.
 
 The Agent shows the proposed selection first. It does not install software without explicit permission or invoke unrelated tools merely because they are available. See [`tool-selection.md`](skills/kb-setup/references/tool-selection.md) for the complete decision rules.
 
@@ -99,7 +99,25 @@ These commands require **Node ≥20**:
 | `npm run check` | Validate schema, links, raw/hash integrity, index state, and the privacy gate |
 | `npm run build-graph` | Generate knowledge-graph data after validation succeeds |
 
-`data/generated/graph.json` is the consumable contract for a v2 visualization and contains `schema_version: 1`, `nodes`, and `edges`. v1 produces data only and has no visualization UI.
+`data/generated/graph.json` is the kernel's basic graph contract and contains `schema_version: 1`, `nodes`, and `edges`. The v2a viewer below consumes the richer, shareable-by-default `web/data/kb-data.js`.
+
+## 🕸️ Local web visualization
+
+The following command validates the knowledge base fail-closed before generating `web/data/kb-data.js`:
+
+```bash
+npm run build-web
+```
+
+Then open [`web/index.html`](web/index.html) directly with `file://`, or run `npm run dev` and visit `http://127.0.0.1:5173/web/`. The development server binds only to the local loopback interface; Python 3 is a convenience server, not a build dependency.
+
+By default, the build writes **only pages with `content_visibility: shareable`** and removes every edge whose endpoint was excluded. Include private pages only for explicit local viewing:
+
+```bash
+npm run build-web -- --include-private
+```
+
+Never share an output containing private pages; open `web/index.html` directly after generating it. If you still need local HTTP, run `python3 -m http.server 5173 --bind 127.0.0.1` from the repository root. Do not run `npm run dev` again, because it rebuilds with the safe default and excludes private pages. The viewer is zero-dependency and read-only: it has no login, performs no network access, and never writes back to Markdown. It supports title/summary/tag search plus type, tag, visibility, `derived_from`, and `links_to` filters. Unlike Obsidian Graph View, this web viewer distinguishes typed edges directly and excludes private pages during generation instead of merely hiding them in the UI.
 
 ## 👁️ View the example in Obsidian
 

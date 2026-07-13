@@ -85,7 +85,7 @@ flowchart LR
 - 搜索优先使用本机 `rg`，否则选择当前 Agent 的文件搜索能力，再否则使用 Node.js 文件遍历。
 - `private-git`/`public-git` 选择 Git；`local-only` 可以不使用版本控制。
 - 图片仅在当前 Agent 确实有视觉能力时选择视觉工具；音频在 v1 始终使用用户提供的 transcript。
-- 本机有 Obsidian 时可选作图谱浏览器，否则继续使用 Markdown 与 `graph.json`。
+- 内置 `karp-web` 可查看 typed-edge 与可见性过滤；本机有 Obsidian 时也可按偏好选择其 Graph View，最低回退仍是 Markdown 与 `graph.json`。
 
 Agent 会先展示选型摘要；未经用户明确许可不会安装软件，也不会为了“用上更多工具”调用与任务无关的工具。完整决策规则见 [`tool-selection.md`](skills/kb-setup/references/tool-selection.md)。
 
@@ -99,7 +99,25 @@ Agent 会先展示选型摘要；未经用户明确许可不会安装软件，�
 | `npm run check` | 校验 schema、链接、raw/hash、索引与隐私门 |
 | `npm run build-graph` | 校验通过后生成知识图谱数据 |
 
-`data/generated/graph.json` 是 v2 可视化的可消费契约，包含 `schema_version: 1`、`nodes` 与 `edges`。v1 只产数据，无可视化 UI。
+`data/generated/graph.json` 是 kernel 的基础图契约，包含 `schema_version: 1`、`nodes` 与 `edges`；下面的 v2a viewer 使用更丰富、默认可分享的 `web/data/kb-data.js`。
+
+## 🕸️ 本地 Web 可视化
+
+运行下面的命令会先 fail-closed 校验知识库，再生成 `web/data/kb-data.js`：
+
+```bash
+npm run build-web
+```
+
+随后可直接用 `file://` 打开 [`web/index.html`](web/index.html)，或运行 `npm run dev`，再访问 `http://127.0.0.1:5173/web/`。`dev` 只绑定本机 loopback；Python 3 只是便利服务器，不是构建依赖。
+
+构建默认**只写入 `content_visibility: shareable` 页面**，并剔除任何连接到被排除节点的边。只有明确要在本机查看私密内容时才运行：
+
+```bash
+npm run build-web -- --include-private
+```
+
+含私密页的产物只能留在本机，不能分享；生成后直接打开 `web/index.html`。若仍需本地 HTTP，从仓库根运行 `python3 -m http.server 5173 --bind 127.0.0.1`，不要再运行 `npm run dev`，因为后者会按安全默认值重新构建并排除 private 页面。viewer 是零依赖、只读页面，不登录、不联网、不写回 Markdown；支持标题/摘要/标签搜索，以及 type、tag、visibility、`derived_from`/`links_to` 过滤。与 Obsidian Graph View 相比，这个网页直接区分 typed edges，并在生成层默认排除 private 页面，而不是只在界面上隐藏。
 
 ## 👁️ 用 Obsidian 查看示例
 

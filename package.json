@@ -8,6 +8,8 @@
     "check": "node scripts/kb.mjs check",
     "reindex": "node scripts/kb.mjs reindex",
     "build-graph": "node scripts/kb.mjs build-graph",
+    "build-web": "node scripts/build-web.mjs",
+    "dev": "npm run build-web && (command -v python3 >/dev/null && python3 -m http.server 5173 --bind 127.0.0.1 || echo 'open web/index.html directly (file://)')",
     "sync-skills": "node scripts/sync-skills.mjs",
     "sync-skills:check": "node scripts/sync-skills.mjs --check",
     "test": "node --test",

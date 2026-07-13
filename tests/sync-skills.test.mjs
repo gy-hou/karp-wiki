@@ -9,6 +9,21 @@ const CANON = {
   'skills/kb-setup/SKILL.md': '---\nname: kb-setup\ndescription: d\n---\nbody\n',
   'skills/kb-setup/references/schema.md': '# schema\n',
 };
+const SENTINELS = {
+  '.claude/skills/kb-setup/sentinel.txt': 'CLAUDE SENTINEL\n',
+  '.agents/skills/kb-setup/sentinel.txt': 'AGENTS SENTINEL\n',
+};
+
+async function assertSentinelsUnchanged(root) {
+  assert.equal(
+    await readFile(path.join(root, '.claude/skills/kb-setup/sentinel.txt'), 'utf8'),
+    SENTINELS['.claude/skills/kb-setup/sentinel.txt'],
+  );
+  assert.equal(
+    await readFile(path.join(root, '.agents/skills/kb-setup/sentinel.txt'), 'utf8'),
+    SENTINELS['.agents/skills/kb-setup/sentinel.txt'],
+  );
+}
 
 test('write/check mirrors every regular file and reports stable missing/extra drift', async () => {
   await withTmpDir(async (root) => {
@@ -120,30 +135,14 @@ test('--check DETECTS a deliberately corrupted mirror (does not self-heal)', asy
 });
 
 test('empty/missing canonical throws (never wipes mirrors then reports success)', async () => {
-  const sentinels = {
-    '.claude/skills/kb-setup/sentinel.txt': 'CLAUDE SENTINEL\n',
-    '.agents/skills/kb-setup/sentinel.txt': 'AGENTS SENTINEL\n',
-  };
-
-  const assertSentinelsUnchanged = async (root) => {
-    assert.equal(
-      await readFile(path.join(root, '.claude/skills/kb-setup/sentinel.txt'), 'utf8'),
-      sentinels['.claude/skills/kb-setup/sentinel.txt'],
-    );
-    assert.equal(
-      await readFile(path.join(root, '.agents/skills/kb-setup/sentinel.txt'), 'utf8'),
-      sentinels['.agents/skills/kb-setup/sentinel.txt'],
-    );
-  };
-
   await withTmpDir(async (root) => {
-    await writeTree(root, sentinels);
+    await writeTree(root, SENTINELS);
     await assert.rejects(() => syncSkills({ root, check: false }), /canonical/i);
     await assertSentinelsUnchanged(root);
   });
 
   await withTmpDir(async (root) => {
-    await writeTree(root, sentinels);
+    await writeTree(root, SENTINELS);
     await mkdir(path.join(root, 'skills/kb-setup'), { recursive: true });
     await assert.rejects(() => syncSkills({ root, check: false }), /canonical/i);
     await assertSentinelsUnchanged(root);
@@ -151,7 +150,7 @@ test('empty/missing canonical throws (never wipes mirrors then reports success)'
 
   await withTmpDir(async (root) => {
     await writeTree(root, {
-      ...sentinels,
+      ...SENTINELS,
       'outside-canonical/SKILL.md': CANON['skills/kb-setup/SKILL.md'],
       'outside-canonical/outside-sentinel.txt': 'OUTSIDE SENTINEL\n',
     });
@@ -168,7 +167,7 @@ test('empty/missing canonical throws (never wipes mirrors then reports success)'
 
   await withTmpDir(async (root) => {
     await writeTree(root, {
-      ...sentinels,
+      ...SENTINELS,
       'skills/kb-setup/SKILL.md': CANON['skills/kb-setup/SKILL.md'],
     });
     const unreadableDir = path.join(root, 'skills/kb-setup/references/no-access');
@@ -183,5 +182,37 @@ test('empty/missing canonical throws (never wipes mirrors then reports success)'
     } finally {
       await chmod(unreadableDir, 0o700);
     }
+  });
+});
+
+test('internal canonical SKILL.md symlink is rejected before either mirror is touched', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      ...SENTINELS,
+      'outside/SKILL.md': CANON['skills/kb-setup/SKILL.md'],
+      'skills/kb-setup/references/schema.md': CANON['skills/kb-setup/references/schema.md'],
+    });
+    await symlink(path.join(root, 'outside/SKILL.md'), path.join(root, 'skills/kb-setup/SKILL.md'));
+
+    await assert.rejects(
+      () => syncSkills({ root, check: false }),
+      /canonical.*SKILL\.md.*symlink/i,
+    );
+    await assertSentinelsUnchanged(root);
+  });
+});
+
+test('canonical references without a regular SKILL.md are rejected before mirrors are touched', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      ...SENTINELS,
+      'skills/kb-setup/references/schema.md': CANON['skills/kb-setup/references/schema.md'],
+    });
+
+    await assert.rejects(
+      () => syncSkills({ root, check: false }),
+      /canonical.*SKILL\.md.*regular file/i,
+    );
+    await assertSentinelsUnchanged(root);
   });
 });

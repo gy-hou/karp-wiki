@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdir, readFile, symlink } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, symlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -19,6 +19,11 @@ const errsOf = async (name) => validate(await collectPages(path.join(fx(name), '
 const cats = (errs) => new Set(errs.map((e) => e.category));
 const runCheck = (root) => spawnSync(process.execPath, [kbCli, 'check', '--root', root], { encoding: 'utf8' });
 const runBuildGraph = (root) => spawnSync(process.execPath, [kbCli, 'build-graph', '--root', root], { encoding: 'utf8' });
+const runImplicitCheck = (cwd, env = process.env) => spawnSync(
+  process.execPath,
+  [kbCli, 'check'],
+  { cwd, env, encoding: 'utf8' },
+);
 const graphOutput = (root) => path.join(root, 'data', 'generated', 'graph.json');
 const edgeTuple = (edge) => [edge.from, edge.to, edge.relation];
 const compareTuple = (left, right) => {
@@ -52,12 +57,69 @@ test('parseFrontmatter throws on unclosed', () => {
   assert.throws(() => parseFrontmatter('---\nid: a\nno closing', 'a.md'));
 });
 
+test('parseFrontmatter accepts CRLF delimiters and preserves the body', () => {
+  const { frontmatter, body } = parseFrontmatter(
+    '---\r\nid: concept-crlf\r\ntags: [windows, markdown]\r\n---\r\n\r\nbody\r\n',
+    'concept-crlf.md',
+  );
+  assert.equal(frontmatter.id, 'concept-crlf');
+  assert.deepEqual(frontmatter.tags, ['windows', 'markdown']);
+  assert.equal(body, 'body\r\n');
+});
+
 test('extractWikiLinks ignores code blocks and inline code', () => {
   assert.deepEqual(extractWikiLinks('see [[concept-a]] not ```\n[[concept-b]]\n``` or `[[concept-c]]`'), ['concept-a']);
 });
 
+test('extractWikiLinks ignores tilde and longer fenced code blocks', () => {
+  const body = `outside [[concept-visible]]
+~~~~ javascript
+[[concept-tilde-hidden]]
+~~~~~~
+\`\`\`\` markdown
+[[concept-long-hidden]]
+\`\`\`
+[[concept-short-close-hidden]]
+\`\`\`\`
+`;
+  assert.deepEqual(extractWikiLinks(body), ['concept-visible']);
+});
+
 test('resolveRoot: --root takes precedence over git/cwd', () => {
   assert.equal(resolveRoot(['--root', '/tmp/x']), path.resolve('/tmp/x'));
+});
+
+test('resolveRoot CLI prefers the git toplevel over a cwd wiki', async () => {
+  await withTmpDir(async (root) => {
+    const nested = path.join(root, 'nested');
+    await writeTree(root, {
+      'wiki/index.md': '',
+      'nested/wiki': 'cwd wiki is deliberately not a directory\n',
+    });
+    const initialized = spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8' });
+    assert.equal(initialized.status, 0, initialized.stdout + initialized.stderr);
+
+    const result = runImplicitCheck(nested);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /check passed/);
+  });
+});
+
+test('resolveRoot CLI falls back to a cwd wiki when git is unavailable', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, { 'wiki/index.md': '' });
+    const result = runImplicitCheck(root, { ...process.env, PATH: '' });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /check passed/);
+  });
+});
+
+test('resolveRoot CLI fails fast without git, --root, or a cwd wiki', async () => {
+  await withTmpDir(async (root) => {
+    const result = runImplicitCheck(root, { ...process.env, PATH: '' });
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stderr, /Cannot determine KB root/);
+  });
 });
 
 test('good fixture: zero validate errors', async () => {
@@ -98,6 +160,17 @@ test('bad-no-frontmatter → findMalformed non-empty', async () => {
   assert.ok((await findMalformed(path.join(fx('bad-no-frontmatter'), 'wiki'))).length > 0);
 });
 
+test('every frozen bad fixture fails the check CLI', async () => {
+  const fixtureNames = (await readdir(path.join(here, 'fixtures')))
+    .filter((name) => name.startsWith('bad-'))
+    .sort();
+  assert.equal(fixtureNames.length, 8, `expected the frozen 8 bad fixtures, got: ${fixtureNames.join(', ')}`);
+  for (const fixtureName of fixtureNames) {
+    const result = runCheck(fx(fixtureName));
+    assert.notEqual(result.status, 0, `${fixtureName} unexpectedly passed:\n${result.stdout}${result.stderr}`);
+  }
+});
+
 test('indexCoverageErrors flags page missing from index', () => {
   assert.ok(indexCoverageErrors([{ id: 'concept-a' }], '# index\n').some((e) => e.category === 'index_missing'));
 });
@@ -106,6 +179,73 @@ test('visibilityErrors: public-git forbids private pages', () => {
   const pages = [{ id: 'c', contentVisibility: 'private' }, { id: 'd', contentVisibility: 'shareable' }];
   assert.equal(visibilityErrors(pages, 'public-git').length, 1);
   assert.equal(visibilityErrors(pages, 'local-only').length, 0);
+});
+
+test('check CLI rejects private pages in public-git mode', async () => {
+  await withTmpDir(async (root) => {
+    await cp(fx('good'), root, { recursive: true });
+    await writeTree(root, {
+      '.karp-wiki/config.json': '{"storage":{"mode":"public-git"}}\n',
+    });
+
+    const result = runCheck(root);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /visibility_leak/);
+  });
+});
+
+test('validate reports missing_field for a required common field', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/concepts/concept-missing-summary.md': page(
+        conceptFrontmatter('concept-missing-summary').replace('summary: s\n', ''),
+      ),
+    });
+    const errors = await validate(await collectPages(path.join(root, 'wiki')), root);
+    assert.ok(errors.some((error) => (
+      error.category === 'missing_field' && error.message.endsWith(': summary')
+    )), JSON.stringify(errors, null, 2));
+  });
+});
+
+test('validate reports broken_source_ref for an unknown source_id', async () => {
+  await withTmpDir(async (root) => {
+    await writeTree(root, {
+      'wiki/concepts/concept-broken-source.md': page(
+        conceptFrontmatter('concept-broken-source').replace('source_ids: []', 'source_ids: [source-missing]'),
+      ),
+    });
+    const errors = await validate(await collectPages(path.join(root, 'wiki')), root);
+    assert.ok(errors.some((error) => error.category === 'broken_source_ref'), JSON.stringify(errors, null, 2));
+  });
+});
+
+test('validate reports media_type when a source omits media_type', async () => {
+  await withTmpDir(async (root) => {
+    const raw = 'source without media_type\n';
+    await writeTree(root, {
+      'raw/text/source.md': raw,
+      'wiki/sources/source-no-media.md': page(`${conceptFrontmatter('source-no-media')
+        .replace('type: concept', 'type: source')}
+raw_path: raw/text/source.md
+raw_sha256: "${sha256File(Buffer.from(raw))}"`),
+    });
+    const errors = await validate(await collectPages(path.join(root, 'wiki')), root);
+    assert.ok(errors.some((error) => error.category === 'media_type'), JSON.stringify(errors, null, 2));
+  });
+});
+
+test('check CLI accepts an isolated CRLF page', async () => {
+  await withTmpDir(async (root) => {
+    const crlfPage = page(conceptFrontmatter('concept-crlf'), 'CRLF body').replaceAll('\n', '\r\n');
+    await writeTree(root, {
+      'wiki/concepts/concept-crlf.md': crlfPage,
+      'wiki/index.md': '- [[concept-crlf]] — s\n',
+    });
+
+    const result = runCheck(root);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  });
 });
 
 test('validate rejects an ID without the matching type-prefixed kebab-case form', async () => {

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>karp-wiki · 本地知识图谱</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">KW</div>
+          <div>
+            <h1>karp-wiki</h1>
+            <p>本地只读知识图谱</p>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="主导航">
+          <button class="nav-button active" data-nav="dashboard">概览</button>
+          <button class="nav-button" data-nav="library">资料库</button>
+          <button class="nav-button" data-nav="graph">知识图谱</button>
+        </nav>
+
+        <div class="privacy-note">
+          <span class="privacy-kicker">可分享视图</span>
+          <p>默认只含 shareable 页面。私密页仅在本地用 <code>--include-private</code> 重建后查看。</p>
+        </div>
+
+        <div class="sidebar-note">
+          <span>数据构建时间</span>
+          <strong id="build-time">未构建</strong>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Static · Zero dependency · Read only</p>
+            <h2 id="page-title">概览</h2>
+          </div>
+          <label class="search-box">
+            <span>搜索标题、摘要或标签</span>
+            <input id="global-search" type="search" placeholder="间隔重复 / Obsidian / learning">
+          </label>
+        </header>
+        <section id="app" class="content" aria-live="polite"></section>
+        <footer class="footer">此页面只读取构建产物，不会写回 Markdown。</footer>
+      </main>
+    </div>
+
+    <script src="./data/kb-data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "karp-wiki",
+  "version": "1.1.1",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "check": "node scripts/kb.mjs check",
+    "reindex": "node scripts/kb.mjs reindex",
+    "build-graph": "node scripts/kb.mjs build-graph",
+    "sync-skills": "node scripts/sync-skills.mjs",
+    "sync-skills:check": "node scripts/sync-skills.mjs --check",
+    "test": "node --test",
+    "gate": "npm test && npm run sync-skills:check && npm run check && npm run build-graph"
+  }
+}

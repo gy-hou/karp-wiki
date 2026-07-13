@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "nodes": [
+    {
+      "id": "concept-spaced-repetition",
+      "type": "concept",
+      "title": "间隔重复"
+    },
+    {
+      "id": "entity-obsidian",
+      "type": "entity",
+      "title": "Obsidian"
+    },
+    {
+      "id": "output-notes",
+      "type": "output",
+      "title": "如何做笔记"
+    },
+    {
+      "id": "source-note",
+      "type": "source",
+      "title": "Text note"
+    },
+    {
+      "id": "source-shot",
+      "type": "source",
+      "title": "Screenshot"
+    }
+  ],
+  "edges": [
+    {
+      "from": "concept-spaced-repetition",
+      "to": "source-note",
+      "relation": "derived_from"
+    },
+    {
+      "from": "concept-spaced-repetition",
+      "to": "source-note",
+      "relation": "links_to"
+    },
+    {
+      "from": "output-notes",
+      "to": "concept-spaced-repetition",
+      "relation": "links_to"
+    },
+    {
+      "from": "output-notes",
+      "to": "source-note",
+      "relation": "derived_from"
+    },
+    {
+      "from": "output-notes",
+      "to": "source-note",
+      "relation": "links_to"
+    },
+    {
+      "from": "output-notes",
+      "to": "source-shot",
+      "relation": "derived_from"
+    },
+    {
+      "from": "output-notes",
+      "to": "source-shot",
+      "relation": "links_to"
+    },
+    {
+      "from": "source-note",
+      "to": "concept-spaced-repetition",
+      "relation": "links_to"
+    }
+  ]
+}

@@ -94,7 +94,7 @@ flowchart LR
 | 路径 | 用途 |
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | 首次启动、日常工作流与安全边界 |
-| [`examples/`](examples/) | 完整的文本、图片与音频转写示例 |
+| [`examples/`](examples/) | 图片与音频转写 raw 输入，以及由它们生成的文本知识页；没有独立的 `examples/raw/text/` 输入 |
 | [`skills/kb-setup/references/schema.md`](skills/kb-setup/references/schema.md) | frontmatter、隐私 tracking 与 graph 的权威契约 |
 | [`skills/kb-setup/`](skills/kb-setup/) | `kb-setup` canonical source |
 | [`raw/`](raw/) | append-only 原始资料 |

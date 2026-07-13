@@ -17,5 +17,11 @@ test('CLAUDE.md imports AGENTS.md on an exact standalone line', async () => {
 
 test('release gate checks the Claude import as an exact standalone line', async () => {
   const evaluation = await readFile(path.join(root, 'docs/eval/dual-agent-eval.md'), 'utf8');
-  assert.match(evaluation, /grep -qx '@AGENTS\.md' CLAUDE\.md/);
+  const importChecks = evaluation.split(/\r?\n/).filter((line) => (
+    line.includes('grep') && line.includes('@AGENTS.md') && line.includes('CLAUDE.md')
+  ));
+  assert.ok(importChecks.length >= 2, `expected discovery and release import checks: ${importChecks.join('\n')}`);
+  for (const importCheck of importChecks) {
+    assert.match(importCheck, /grep -qx (?:'@AGENTS\.md'|"@AGENTS\.md") CLAUDE\.md/);
+  }
 });

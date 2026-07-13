@@ -94,7 +94,7 @@ These commands require **Node ≥20**:
 | Path | Purpose |
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | First-run instructions, daily workflows, and safety boundaries |
-| [`examples/`](examples/) | Complete text, image, and audio-transcript example |
+| [`examples/`](examples/) | Image and audio-transcript raw inputs plus their derived text knowledge pages; there is no standalone `examples/raw/text/` input |
 | [`skills/kb-setup/references/schema.md`](skills/kb-setup/references/schema.md) | Authoritative frontmatter, privacy-tracking, and graph contract |
 | [`skills/kb-setup/`](skills/kb-setup/) | Canonical source for `kb-setup` |
 | [`raw/`](raw/) | Append-only source material |

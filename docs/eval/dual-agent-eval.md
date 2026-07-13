@@ -23,6 +23,7 @@ _用于 karp-wiki v1.1.1 的可复现验收、fresh-session 记录与发布前�
 
 - Claude Code 从 `.claude/skills/kb-setup` 发现 skill，Codex 从 `.agents/skills/kb-setup` 发现 skill。
 - 文件存在只能证明发现路径已安装；实际自动/显式触发由后文的 fresh-session 四象限记录证明。
+- `CLAUDE.md` 必须用独立的 `@AGENTS.md` 行导入通用规则；行内出现该子串不算通过。
 
 ```bash
 set -euo pipefail
@@ -30,9 +31,10 @@ test -f .claude/skills/kb-setup/SKILL.md
 test -f .agents/skills/kb-setup/SKILL.md
 grep -q '^name: kb-setup$' .claude/skills/kb-setup/SKILL.md
 grep -q '^name: kb-setup$' .agents/skills/kb-setup/SKILL.md
+grep -qx '@AGENTS.md' CLAUDE.md
 ```
 
-通过条件：上述命令退出 `0`，且 Claude Code、Codex 各有自然语言与显式调用的 fresh-session 记录。自然语言未触发时如实记失败，不把随后显式调用的成功改记成自动触发成功。
+通过条件：上述命令退出 `0`，且 Claude Code、Codex 各有自然语言与显式调用的 fresh-session 记录。Claude Code 记录还必须保存 `/memory` 的 loaded-instructions 视图，或预先配置的 `InstructionsLoaded` hook 日志，用来证明该全新会话实际加载了项目 instructions；这份模板没有声称已经运行过该会话。自然语言未触发时如实记失败，不把随后显式调用的成功改记成自动触发成功。Claude Code 官方的 [memory 文档](https://code.claude.com/docs/en/memory) 给出了独立 `@AGENTS.md` import，并推荐用 `/memory` 或 `InstructionsLoaded` 排查加载状态。
 
 ### 2. canonical 与镜像一致
 
@@ -107,20 +109,15 @@ test "$RAW_SHA_BEFORE" = "$RAW_SHA_AFTER"
 
 必须拒绝：坏 YAML、缺字段、重复 ID、正文断链、错误 `source_ids` 引用、缺失媒体、无 frontmatter、路径穿越、非法枚举、重复 SHA。对应错误类别至少包括 `missing_field`、`duplicate_id`、`broken_link`、`broken_source_ref`、`raw_missing`、`no_frontmatter`、`path_escape` / `symlink_escape`、`invalid_status` / `invalid_visibility` 与 `duplicate_raw`。
 
-`tests/fixtures/bad-*` 是坏库语料；`node --test` 负责断言具体错误类别，并可从这些 fixture 复制临时变体来覆盖缺字段、错误 source 引用和 symlink 逃逸等单项。先运行测试，再确认每个现有 bad fixture 的 CLI 都非零退出：
+`tests/fixtures/bad-*` 是冻结的 8 个坏库语料，不增加第 9 个。自动化测试会断言数量恰好为 8，逐个运行真实 `check` CLI 并要求非零退出；隔离临时目录测试另行覆盖 `missing_field`、`broken_source_ref` 和 source 缺失 `media_type`。运行：
 
 ```bash
 set -euo pipefail
 node --test
-for fixture in tests/fixtures/bad-*; do
-  if node scripts/kb.mjs check --root "$fixture"; then
-    echo "unexpected pass: $fixture" >&2
-    exit 1
-  fi
-done
+node --test --test-name-pattern='every frozen bad fixture|missing_field for a required|broken_source_ref|omits media_type' tests/kb.test.mjs
 ```
 
-通过条件：测试全绿，所有 `bad-*` 都被拒绝；验收记录把上述十种坏输入逐项映射到 fixture 或 fixture-derived 单元用例。任何必需类别无断言都视为本项失败，不能仅凭“命令非零”笼统通过。
+通过条件：测试全绿，自动化 loop 证明全部 8 个 `bad-*` 都被 CLI 拒绝；验收记录把上述十种坏输入逐项映射到 fixture 或隔离临时用例。任何必需类别无断言都视为本项失败，不能仅凭“命令非零”笼统通过。
 
 ### 7. reindex 可修复且幂等
 
@@ -157,7 +154,7 @@ node -e 'const g=require("./data/generated/graph.json"); const k=e=>`${e.from}|$
 
 ### 9. public-git 隐私硬门
 
-从 good fixture 创建独立临时库；其中现有页面是 `content_visibility: private`，再把 storage mode 设为 `public-git`。`expect_nonzero` 会捕获并检查真实退出码；若任一命令意外返回 `0`，整个 gate 立即失败。两次 CLI 调用后都断言 graph 不存在：
+`node --test --test-name-pattern='private pages in public-git' tests/kb.test.mjs` 自动覆盖真实 `check` CLI 的 hard failure；下面的独立 shell 复现同时验证 `check` 与 `build-graph`。从 good fixture 创建独立临时库；其中现有页面是 `content_visibility: private`，再把 storage mode 设为 `public-git`。`expect_nonzero` 会捕获并检查真实退出码；若任一命令意外返回 `0`，整个 gate 立即失败。两次 CLI 调用后都断言 graph 不存在：
 
 ```bash
 set -euo pipefail
@@ -302,6 +299,8 @@ Agent 必须先原样说明隐私提示，再由操作员选择 `local-only`。�
 
 ### Claude Code 固定 prompt
 
+每个 Claude Code trial 在发送业务 prompt 前先运行 `/memory` 并保存 loaded-instructions 视图；也可在启动会话前配置 `InstructionsLoaded` hook 并保存对应事件日志。只记录实际出现的加载证据；没有这类证据就把 instructions-loading 一栏记为未验证，不能从仓库里存在 `CLAUDE.md` 反推会话已经加载它。
+
 自然语言 trial：在 `CLAUDE_NATURAL` 中开启全新 Claude Code 会话，只发送：
 
 ```text
@@ -364,6 +363,7 @@ prepare_image_case() {
   git -C "$REPO" archive HEAD | tar -x -C "$root"
   mkdir -p "$root/raw/images"
   cp "$root/examples/raw/images/note-shot.png" "$root/raw/images/note-shot.png"
+  rm -rf "$root/examples/wiki" "$root/examples/README.md"
   shasum -a 256 "$root/raw/images/note-shot.png" > "$EVIDENCE_DIR/${label}.raw-before.sha256"
   printf '%s\n' "$root"
 }
@@ -372,7 +372,7 @@ CODEX_IMAGE=$(prepare_image_case codex-image)
 printf 'claude_image=%s\ncodex_image=%s\nevidence=%s\n' "$CLAUDE_IMAGE" "$CODEX_IMAGE" "$EVIDENCE_DIR"
 ```
 
-分别在 `CLAUDE_IMAGE` 与 `CODEX_IMAGE` 开启全新会话。Claude Code 先发送 `/kb-setup`，Codex 先发送 `$kb-setup`，然后两端都逐字发送以下固定图片摄入 prompt：
+准备函数在复制 PNG 后删除 `examples/wiki` 与 `examples/README.md`，因此已派生页面和示例说明都不能作为语义侧信道。分别在 `CLAUDE_IMAGE` 与 `CODEX_IMAGE` 开启全新会话。Claude Code 先保存 `/memory` 或 `InstructionsLoaded` 的实际加载证据，再发送 `/kb-setup`；Codex 先发送 `$kb-setup`，然后两端都逐字发送以下固定图片摄入 prompt：
 
 ```text
 把 raw/images/note-shot.png 摄入知识库。只记录你在当前运行时实际看见的图片内容；不要从文件名、README、examples/wiki 或既有 source 页面推断。
@@ -436,6 +436,13 @@ node -e 'const c=require("./.karp-wiki/config.json"); const s=c.setup; const ord
 
 ## ⚙️ 全库最终 gate
 
+`node --test` 已自动发现并覆盖：Claude import 精确行、CRLF parser/CLI、root resolution 的 git 优先与无 git fallback/fail-fast、public-git/private `check` 硬失败、`missing_field`、`broken_source_ref`、source 缺失 `media_type`、冻结的 8 个 bad fixture CLI loop、canonical symlink/缺 `SKILL.md` sentinel 保护，以及 tilde/长 fence graph-link 过滤。可单独复核 root resolution 与 project contract：
+
+```bash
+node --test --test-name-pattern='resolveRoot CLI' tests/kb.test.mjs
+node --test tests/project-contract.test.mjs
+```
+
 从待发布 commit 的仓库根运行以下命令，保持 `set -euo pipefail`，不得拆开后只报告最后一个子命令：
 
 ```bash
@@ -447,7 +454,7 @@ bash -c 'set -euo pipefail
   echo "== examples check =="; node scripts/kb.mjs check --root examples
   echo "== build graph =="; node scripts/kb.mjs build-graph
   echo "== discovery paths =="; ls .claude/skills/kb-setup/SKILL.md .agents/skills/kb-setup/SKILL.md
-  echo "== import =="; grep -q "@AGENTS.md" CLAUDE.md
+  echo "== import =="; grep -qx "@AGENTS.md" CLAUDE.md
   echo "== config =="; node -e "const c=require(\"./.karp-wiki/config.example.json\"); if(c.state!==\"not_started\") process.exit(1)"
   echo "ALL GATES PASSED"'
 echo "final gate exit=$?"

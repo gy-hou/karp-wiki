@@ -1,6 +1,8 @@
 # karp-wiki — Claude Code 入口
 
-本仓库通用规则见 @AGENTS.md(唯一正文)。以下仅为 Claude Code 专属补充。
+@AGENTS.md
+
+上面的独立 import 是本仓库通用规则的唯一正文。以下仅为 Claude Code 专属补充。
 
 ## Claude 专属
 - 初始化技能通过 `.claude/skills/kb-setup` 自动发现,或显式 `/kb-setup`。

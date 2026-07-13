@@ -1,0 +1,23 @@
+name: ci
+on:
+  push:
+    branches: [master]
+  pull_request:
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Unit tests
+        run: node --test
+      - name: Skill mirrors in sync
+        run: npm run sync-skills:check
+      - name: KB check (root)
+        run: node scripts/kb.mjs check
+      - name: KB check (examples)
+        run: node scripts/kb.mjs check --root examples
+      - name: Build graph (fail-closed)
+        run: node scripts/kb.mjs build-graph

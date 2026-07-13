@@ -19,7 +19,7 @@ karp-wiki 是将原始资料整理为可校验、可查询本地知识库的独�
 
 ## Frontmatter 与知识图谱契约
 
-以 [schema.md](skills/kb-setup/references/schema.md) 为唯一 schema 规范：所有页都遵守通用 frontmatter、类型前缀 ID、`<id>.md` 文件名和 `[[id]]` 内链契约。四种页类型为 `concept`、`entity`、`source`、`output`；`source` 另记录媒体类型、raw 路径、SHA-256 与 provenance，`output` 另记录原始查询。该规范同时定义 index/log、隐私 tracking 与 graph：`source_ids` 产生 `derived_from` 边，正文内链产生 `links_to` 边。
+以 [schema.md](skills/kb-setup/references/schema.md) 为唯一 schema 规范：所有页都遵守通用 frontmatter、类型前缀 ID、`<id>.md` 文件名和 `[[id]]` 内链契约。四种页类型为 `concept`、`entity`、`source`、`output`；所有 `source` 都记录媒体类型、raw 路径和 SHA-256，仅 `media_type: audio` 额外必需 `provenance`，`output` 另记录原始查询。该规范同时定义 index/log、隐私 tracking 与 graph：`source_ids` 产生 `derived_from` 边，正文内链产生 `links_to` 边。
 
 ## 日常工作流与多模态
 

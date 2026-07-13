@@ -150,6 +150,15 @@ export async function syncSkills({ root, check = false } = {}) {
   }
 
   const canonicalEntries = await buildEntryMap(canonicalState.absolutePath, 'canonical');
+  for (const [relativePath, entry] of sortedEntries(canonicalEntries)) {
+    if (entry.type !== 'directory' && entry.type !== 'file') {
+      throw new Error(`canonical entry ${path.join(canonicalRelative, relativePath)} is ${entry.type}`);
+    }
+  }
+  if (canonicalEntries.get('SKILL.md')?.type !== 'file') {
+    throw new Error(`canonical SKILL.md must be a regular file: ${path.join(canonicalRelative, 'SKILL.md')}`);
+  }
+
   const sourceFiles = [];
   for (const [relativePath, entry] of sortedEntries(canonicalEntries)) {
     if (entry.type !== 'file') continue;

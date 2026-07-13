@@ -58,8 +58,9 @@ function parseScalar(value) {
 }
 
 export function parseFrontmatter(text, filePath) {
-  if (!text.startsWith('---\n')) return null;
-  const afterOpening = text.slice(4);
+  const opening = /^---\r?\n/.exec(text);
+  if (!opening) return null;
+  const afterOpening = text.slice(opening[0].length);
   const closing = /^---\r?$/m.exec(afterOpening);
   if (!closing) throw new Error(`Unclosed frontmatter: ${filePath}`);
   const raw = afterOpening.slice(0, closing.index);
@@ -76,7 +77,28 @@ export function parseFrontmatter(text, filePath) {
 }
 
 export function stripCodeBlocks(body) {
-  return body.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
+  const visibleLines = [];
+  let fence = null;
+  for (const line of body.split(/\r?\n/)) {
+    if (fence) {
+      const closing = /^ {0,3}(`+|~+)[ \t]*$/.exec(line);
+      if (closing && closing[1][0] === fence.character && closing[1].length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (opening && !(opening[1][0] === '`' && opening[2].includes('`'))) {
+      fence = { character: opening[1][0], length: opening[1].length };
+      continue;
+    }
+    visibleLines.push(line);
+  }
+
+  return visibleLines.join('\n')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`]*`/g, '');
 }
 
 export function extractWikiLinks(body) {

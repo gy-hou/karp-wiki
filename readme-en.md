@@ -77,6 +77,18 @@ Repository-level `storage.mode` in `.karp-wiki/config.json` has three values:
 
 Page-level frontmatter independently sets `content_visibility` to `private` or `shareable`; it cannot be inferred from `storage.mode`. `public-git` has a hard gate: if any page has `content_visibility: private`, `npm run check` exits non-zero and blocks validation.
 
+## 🧰 Machine-aware tool selection
+
+`kb-setup` does not assume that every computer has the same tools. During initialization it inventories both the **capabilities exposed by the Agent in the current session** and the **local machine and installed programs**, including the operating system, CPU architecture, logical cores, memory, and the availability of Node.js, Git, ripgrep, and Obsidian. It then selects the smallest sufficient combination by role and atomically records the inventory and selection in `.karp-wiki/config.json` under `tooling.inventory` and `tooling.selected` for later workflows.
+
+- The deterministic kernel always uses Node.js ≥20 plus `scripts/kb.mjs`; setup blocks and gives installation guidance if it is unavailable.
+- Search prefers local `rg`, then the current Agent's file-search capability, then a Node.js filesystem fallback.
+- `private-git` and `public-git` select Git; `local-only` may use no version control.
+- Image understanding is selected only when the current Agent really has vision capability; v1 audio always uses a user-provided transcript.
+- Obsidian may be selected as the graph viewer when installed; otherwise Markdown and `graph.json` remain available.
+
+The Agent shows the proposed selection first. It does not install software without explicit permission or invoke unrelated tools merely because they are available. See [`tool-selection.md`](skills/kb-setup/references/tool-selection.md) for the complete decision rules.
+
 ## 🔧 Deterministic tools and graph contract
 
 These commands require **Node ≥20**:
@@ -88,6 +100,10 @@ These commands require **Node ≥20**:
 | `npm run build-graph` | Generate knowledge-graph data after validation succeeds |
 
 `data/generated/graph.json` is the consumable contract for a v2 visualization and contains `schema_version: 1`, `nodes`, and `edges`. v1 produces data only and has no visualization UI.
+
+## 👁️ View the example in Obsidian
+
+Open `examples/` as a separate Obsidian vault when viewing the finished knowledge graph. Do not use the whole template repository as the example vault; otherwise the root README, `docs/`, skills, and other project Markdown files will also appear in Graph View and obscure the five example knowledge pages. Obsidian's `.obsidian/` directory is local UI state and is ignored at every directory level.
 
 ## 📍 Directory guide
 

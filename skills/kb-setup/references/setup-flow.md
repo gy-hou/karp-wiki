@@ -1,6 +1,6 @@
 # 首次搭建流程
 
-只按以下顺序执行：`read_state` → `interview` → `privacy_tools` → `scaffold` → `first_ingest` → `finalize`。开始前读取 `references/security.md`；写目录或页面前读取 `references/schema.md`；first ingest 前读取 `references/workflows.md`。
+只按以下顺序执行：`read_state` → `interview` → `privacy_tools` → `scaffold` → `first_ingest` → `finalize`。开始前读取 `references/security.md`；执行 privacy_tools 前读取 `references/tool-selection.md`；写目录或页面前读取 `references/schema.md`；first ingest 前读取 `references/workflows.md`。
 
 ## Resume 与 checkpoint 契约
 
@@ -33,10 +33,11 @@
   - `local-only`：忽略 `raw/**`、`wiki/**`；设置 `privacy.default_content_visibility: private`。Git 可选，无 Git 仓库也能继续。
   - `private-git`：跟踪 `raw/**`、`wiki/**`；要求 `remote_is_private_ack: true`；设置 `privacy.default_content_visibility: private`。
   - `public-git`：忽略 `raw/**`、跟踪 `wiki/**`；设置 `privacy.default_content_visibility: shareable`，并保证每个创建页面均为 `shareable`。公开库的确定性隐私门不接受任何 private 页面。
-  - 三种 mode 均忽略 `data/generated/**`，并跟踪 `.karp-wiki/config.json`、templates、skill、docs、README。
-- **幂等与 checkpoint：** 根据 `schema.md` tracking 矩阵重写 `.gitignore` 的受管规则，同时保留无关用户规则。若处于 Git worktree，对变为禁止跟踪且已经 tracked 的路径执行安全的 `git rm --cached` 操作，具体使用 `git rm -r --cached --ignore-unmatch -- <paths>`；只移出 index，绝不删除本地文件。`local-only` 且不在 Git 仓库时说明 Git-only untracking 不适用并跳过。`private-git`/`public-git` 没有 Git 时本步不能完成。规则、配置和必要 untracking 全部成功后才 checkpoint。
+  - 三种 mode 均在任意 KB 根忽略 `**/data/generated/**` 与本机界面状态 `**/.obsidian/**`，并跟踪 `.karp-wiki/config.json`、templates、skill、docs、README。
+  - 按 [tool-selection.md](tool-selection.md) 盘点 Agent 当前会话公开的能力、本机平台/架构/CPU/内存与已安装候选程序，写入 `config.tooling.inventory`；再按 kernel、search、versioning、image_ingest、audio_ingest、graph_view 六个角色形成 `config.tooling.selected`。向用户展示“角色 → 选择 → 理由 → 回退”摘要。
+- **幂等与 checkpoint：** 根据 `schema.md` tracking 矩阵重写 `.gitignore` 的受管规则，同时保留无关用户规则。若处于 Git worktree，对变为禁止跟踪且已经 tracked 的路径执行安全的 `git rm --cached` 操作，具体使用 `git rm -r --cached --ignore-unmatch -- <paths>`；只移出 index，绝不删除本地文件。`local-only` 且不在 Git 仓库时说明 Git-only untracking 不适用并跳过。`private-git`/`public-git` 没有 Git 时本步不能完成。隐私设置、tracking 规则、必要 untracking、`config.tooling.inventory` 与 `config.tooling.selected` 必须全部成功，并在同一次原子写入中保存配置后才 checkpoint。已有完整的带时间戳 tooling 快照先验证所选工具仍可用；环境未变则复用，换机或失效才重新盘点，不重复其他副作用。
 
-工具只自检并报告，不自动安装。按 [multimodal.md](multimodal.md) 的工具矩阵运行：`node --version`（必需且 ≥20）、`git --version`（Git mode 必需，local-only 可选）、`command -v rg`（可选）；缺失时按 OS 给出安装命令。
+Node.js ≥20 是硬依赖；Git 在 Git mode 下是硬依赖。其余工具按 inventory 选择真实可用的回退。缺失时按当前 OS 给建议，但未经用户明确许可不安装、升级、启用工具或联网服务。
 
 ## 4. `scaffold`
 
@@ -48,7 +49,7 @@
 ## 5. `first_ingest`
 
 - **做什么：** 引导用户把第一份资料新增到合适的 `raw/` 子目录；严格执行 `workflows.md` 的 Ingest：先 hash raw bytes、按 SHA-256 去重、创建或更新一个 source 页和相关派生页，然后依次运行 `reindex` → `check` → `build-graph`。
-- **怎么问：** 请用户指定首份本地资料；图片/音频先按 `multimodal.md` 确认能力和转写条件。不得修改或删除已落盘 raw bytes。
+- **怎么问：** 请用户指定首份本地资料；按 `config.tooling.selected` 使用已经确认的组合。图片/音频仍须按 `multimodal.md` 确认能力和转写条件；已选工具不可用时按 `tool-selection.md` 重新盘点，不得静默换成外部服务。不得修改或删除已落盘 raw bytes。
 - **产出：** 至少一个有效 source 页面、必要的 concept/entity 页面、当前 index 和 graph，以及成功后的单条 ingest log。
 - **幂等与 checkpoint：** 相同 `raw_sha256` 更新既有 source，不新建第二个 source；日志先查同一 ingest 事件，避免重复。三个确定性命令全部成功且 `check` 通过后才 checkpoint；此前不得进入 finalize。
 

@@ -4,6 +4,7 @@ raw/text/*
 raw/images/*
 raw/audio/*
 !raw/**/.gitkeep
-data/generated/
+**/data/generated/
+**/.obsidian/
 .DS_Store
 node_modules/

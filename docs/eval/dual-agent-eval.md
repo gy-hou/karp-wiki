@@ -59,6 +59,7 @@ setup 是 Agent skill 工作流，不是独立的 setup 可执行文件，因此
 ```bash
 set -euo pipefail
 node -e 'const c=require("./.karp-wiki/config.json"); const s=c.setup; if(c.state!=="complete"||s.current_step!==null||s.completed_steps.join("|")!==s._step_order.join("|")) process.exit(1)'
+node -e 'const c=require("./.karp-wiki/config.json"); const t=c.tooling; const roles=["kernel","search","versioning","image_ingest","audio_ingest","graph_view"]; const selected=t&&t.selected; const complete=selected&&roles.every((r)=>typeof selected[r]==="string"&&selected[r].length>0); const inventory=Array.isArray(t&&t.inventory); if(!complete||!inventory||selected.kernel!=="node+kb.mjs"||selected.audio_ingest!=="user-provided-transcript") process.exit(1)'
 node scripts/kb.mjs check
 ```
 
@@ -76,7 +77,7 @@ snapshot "$CASE_ROOT" > "$EVIDENCE_DIR/setup-after.sha256"
 diff -u "$EVIDENCE_DIR/setup-before.sha256" "$EVIDENCE_DIR/setup-after.sha256"
 ```
 
-通过条件：首次完成、二次零修改、断点恢复后的 `completed_steps` 为完整且无重复的有序列表；会话记录没有重复写 source 或重复追加同一 ingest / setup-complete 事件。
+通过条件：首次完成、二次零修改、断点恢复后的 `completed_steps` 为完整且无重复的有序列表；`tooling.inventory` 与六个 `tooling.selected` 角色已经实际落盘，且会话中展示过“角色 → 选择 → 理由 → 回退”摘要；会话记录没有重复写 source 或重复追加同一 ingest / setup-complete 事件。
 
 ### 4. 同素材 ingest 幂等
 
@@ -455,7 +456,7 @@ bash -c 'set -euo pipefail
   echo "== build graph =="; node scripts/kb.mjs build-graph
   echo "== discovery paths =="; ls .claude/skills/kb-setup/SKILL.md .agents/skills/kb-setup/SKILL.md
   echo "== import =="; grep -qx "@AGENTS.md" CLAUDE.md
-  echo "== config =="; node -e "const c=require(\"./.karp-wiki/config.example.json\"); if(c.state!==\"not_started\") process.exit(1)"
+  echo "== config =="; node -e "const c=require(\"./.karp-wiki/config.example.json\"); const roles=[\"kernel\",\"search\",\"versioning\",\"image_ingest\",\"audio_ingest\",\"graph_view\"]; if(c.state!==\"not_started\"||!c.tooling||!roles.every((r)=>Object.hasOwn(c.tooling.selected,r))) process.exit(1)"
   echo "ALL GATES PASSED"'
 echo "final gate exit=$?"
 ```

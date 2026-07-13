@@ -16,5 +16,23 @@
     "persist_queries": "ask",
     "default_content_visibility": "private"
   },
-  "modalities": { "text": true, "image": "if-agent-vision", "audio": "transcript-only" }
+  "modalities": { "text": true, "image": "if-agent-vision", "audio": "transcript-only" },
+  "tooling": {
+    "detected_at": null,
+    "machine": {
+      "platform": null,
+      "arch": null,
+      "logical_cpu": null,
+      "memory_gb": null
+    },
+    "inventory": [],
+    "selected": {
+      "kernel": null,
+      "search": null,
+      "versioning": null,
+      "image_ingest": null,
+      "audio_ingest": "user-provided-transcript",
+      "graph_view": null
+    }
+  }
 }

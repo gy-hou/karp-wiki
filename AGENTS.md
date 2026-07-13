@@ -31,6 +31,8 @@ karp-wiki 是将原始资料整理为可校验、可查询本地知识库的独�
 
 图片与音频按 [multimodal.md](skills/kb-setup/references/multimodal.md) 处理：图片必须有当前运行时的实际视觉能力；音频在 v1 仅支持用户提供的 transcript。不得编造不受支持的视觉理解、ASR 或其他处理。
 
+setup 会按 [tool-selection.md](skills/kb-setup/references/tool-selection.md) 盘点当前 Agent 暴露的工具清单、本机配置与已安装程序，从中选择最小够用的组合，并保存到 `.karp-wiki/config.json` 的 `tooling.inventory`/`tooling.selected`。日常工作优先复用该选择；换机或所选工具失效时只重新盘点 tooling，不静默安装软件、启用联网服务或把不可用能力说成可用。
+
 ## 确定性内核
 
 结构变更后按影响范围运行以下可复制命令；Ingest 与已修复的 Lint 顺序固定为：

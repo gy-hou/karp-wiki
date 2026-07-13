@@ -18,6 +18,7 @@ description: Use when 用户说“帮我搭知识库”“初始化知识库”�
 ## 加载与执行
 
 - 每次 setup 都完整读取 [setup-flow.md](references/setup-flow.md) 和 [security.md](references/security.md)，严格执行可恢复、幂等的六步流程。
+- 执行 `privacy_tools` 前完整读取 [tool-selection.md](references/tool-selection.md)，根据当前 Agent 工具清单和本机配置形成并保存工具组合，不得只检测后丢弃结果。
 - scaffold 或写任何页面前读取 [schema.md](references/schema.md)。
 - first ingest 前读取 [workflows.md](references/workflows.md)。
 - 检查运行时能力或处理图片、音频时读取 [multimodal.md](references/multimodal.md)。

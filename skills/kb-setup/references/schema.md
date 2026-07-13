@@ -1,6 +1,6 @@
 # karp-wiki schema v1
 
-本文档是 karp-wiki v1 页面、索引、日志、隐私 tracking 和知识图谱的规范契约。下列规则由 `kb.mjs`、工作流和文档共同引用。
+本文档是 karp-wiki v1 页面、索引、日志、setup 配置、隐私 tracking 和知识图谱的规范契约。下列规则由 `kb.mjs`、工作流和文档共同引用。
 
 ## 通用 frontmatter
 
@@ -85,12 +85,24 @@ setup 据 mode 重写 `.gitignore` 并对已跟踪内容执行 `git rm --cached`
 |------|-----------|-------------|-----------|
 | `raw/**` | 忽略 | 跟踪(备份) | 忽略(公开库永不发布 raw) |
 | `wiki/**` 页面 + index/log | 忽略 | 跟踪 | 跟踪 |
-| `data/generated/**` | 忽略 | 忽略 | 忽略(可重建) |
+| `**/data/generated/**` | 忽略 | 忽略 | 忽略(可重建，含嵌套示例 KB) |
+| `**/.obsidian/**` | 忽略(本机界面状态) | 忽略(本机界面状态) | 忽略(本机界面状态) |
 | `.karp-wiki/config.json`、templates、skill、docs、README | 跟踪 | 跟踪 | 跟踪 |
 
 **public-git 硬门:** `kb.mjs check` 若发现**任何** `content_visibility: private` 页面即非零退出(私密内容请另建 local-only/private-git 库)。
 
 **private-git 前置:** 需 `config.storage.remote_is_private_ack = true`,setup 明确警告"raw + wiki 摘要会推送到 remote"。
+
+## setup 工具选择契约
+
+setup 必须依据 [tool-selection.md](tool-selection.md) 把能力快照写入 `config.tooling`，不能只输出检测结果：
+
+- `detected_at`：UTC ISO 8601 时间；未探测时为 `null`。
+- `machine`：`platform`、`arch`、`logical_cpu`、`memory_gb`；无法读取的单项写 `null`，不得猜测。
+- `inventory`：按 `id` 稳定排序的候选工具数组。每项包含 `id`、`source`、`available`、`version`、`capabilities`。
+- `selected`：恰好包含 `kernel`、`search`、`versioning`、`image_ingest`、`audio_ingest`、`graph_view` 六个角色。
+
+当 setup 完成 `privacy_tools` checkpoint 时，六个角色都必须有明确值，且所选必需工具真实可用：`kernel` 固定为 `node+kb.mjs`，`audio_ingest` 固定为 `user-provided-transcript`；`private-git`/`public-git` 的 `versioning` 必须为 `git`。inventory 与 selected 必须和 storage/privacy 选择在同一次原子配置更新中落盘。
 
 ## index 与 log 契约
 

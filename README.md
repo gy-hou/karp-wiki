@@ -77,6 +77,18 @@ flowchart LR
 
 页面级 frontmatter 的 `content_visibility` 独立取值为 `private` 或 `shareable`，不能从 `storage.mode` 推断。`public-git` 有硬门：只要存在任何 `content_visibility: private` 页面，`npm run check` 就会非零退出，禁止通过。
 
+## 🧰 根据本机配置选择工具组合
+
+`kb-setup` 不会假设每台电脑都有同一套工具。初始化时，它会同时盘点 **Agent 当前会话公开的工具能力** 与 **本机配置/已安装程序**，包括操作系统、CPU 架构、逻辑核心数、内存，以及 Node.js、Git、ripgrep、Obsidian 等是否可用；随后按角色选择一套最小够用的组合，并把清单与选择原子写入 `.karp-wiki/config.json` 的 `tooling.inventory` 和 `tooling.selected`，供后续工作流复用。
+
+- 确定性内核固定使用 Node.js ≥20 + `scripts/kb.mjs`；缺少时 setup 会阻断并给出安装建议。
+- 搜索优先使用本机 `rg`，否则选择当前 Agent 的文件搜索能力，再否则使用 Node.js 文件遍历。
+- `private-git`/`public-git` 选择 Git；`local-only` 可以不使用版本控制。
+- 图片仅在当前 Agent 确实有视觉能力时选择视觉工具；音频在 v1 始终使用用户提供的 transcript。
+- 本机有 Obsidian 时可选作图谱浏览器，否则继续使用 Markdown 与 `graph.json`。
+
+Agent 会先展示选型摘要；未经用户明确许可不会安装软件，也不会为了“用上更多工具”调用与任务无关的工具。完整决策规则见 [`tool-selection.md`](skills/kb-setup/references/tool-selection.md)。
+
 ## 🔧 确定性工具与 graph 契约
 
 这些命令需要 **Node ≥20**：
@@ -88,6 +100,10 @@ flowchart LR
 | `npm run build-graph` | 校验通过后生成知识图谱数据 |
 
 `data/generated/graph.json` 是 v2 可视化的可消费契约，包含 `schema_version: 1`、`nodes` 与 `edges`。v1 只产数据，无可视化 UI。
+
+## 👁️ 用 Obsidian 查看示例
+
+查看成品知识图谱时，请把 `examples/` 单独作为 vault 打开。不要把整个模板仓库作为示例 vault；否则根 README、`docs/`、skills 等项目 Markdown 也会进入 Obsidian Graph View，干扰这 5 个示例知识页。Obsidian 创建的 `.obsidian/` 是本机界面状态，模板会在任意目录层级忽略它。
 
 ## 📍 目录导览
 

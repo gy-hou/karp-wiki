@@ -144,13 +144,13 @@ fi
 
 BRANCH="auto/ingest-$(date +%Y-%m-%d-%H%M)"
 if [ "$DRY" = "1" ]; then
-  echo "DRY-RUN"
   echo "agent: $AGENT"
   echo "branch: $BRANCH"
   echo "pending ($COUNT):"
   while IFS=$'\t' read -r raw_path _sha256; do
     [ -n "$raw_path" ] && echo "$raw_path"
   done < "$PENDING_FILE"
+  echo "DRY-RUN"
   exit 0
 fi
 

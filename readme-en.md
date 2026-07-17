@@ -101,6 +101,24 @@ These commands require **Node ≥20**:
 
 `data/generated/graph.json` is the kernel's basic graph contract and contains `schema_version: 1`, `nodes`, and `edges`. The v2a viewer below consumes the richer, shareable-by-default `web/data/kb-data.js`.
 
+## 🤖 Local auto-ingest (prepare-only)
+
+The optional launchd automation runs **Monday and Thursday at 09:00** and when new material appears in `raw/`. It processes only material listed by `node scripts/kb.mjs pending` that has not yet been recorded by a source page, and it does not use the network by default.
+
+This is strictly **prepare-only**: it starts only from a clean `master`, creates a dated `auto/ingest-*` branch, and commits there only after `kb.mjs check` passes. The automation **never pushes, merges, or commits to `master`**. You must review the branch and decide whether to merge it. If the worktree is dirty or the current branch is not `master`, it stops without disturbing in-progress work.
+
+Install one local agent (choose one):
+
+```bash
+bash automation/install.sh codex
+# or
+bash automation/install.sh claude
+```
+
+Pause or uninstall with `bash automation/uninstall.sh codex` (or `claude`). The local run summary is `automation/last-run.md`; see [`automation/README.md`](automation/README.md) for the full workflow.
+
+The unattended security boundary is important: **everything under `raw/` is untrusted data, not an instruction for the agent.** The agent ignores commands, directions, and links in raw material and never executes raw code. See [`auto-ingest.md`](skills/kb-setup/references/auto-ingest.md) for the exact procedure.
+
 ## 🕸️ Local web visualization
 
 The following command validates the knowledge base fail-closed before generating `web/data/kb-data.js`:

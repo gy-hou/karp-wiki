@@ -9,3 +9,4 @@ raw/audio/*
 **/.obsidian/
 .DS_Store
 node_modules/
+automation/last-run.md

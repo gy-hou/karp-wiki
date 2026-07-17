@@ -30,3 +30,9 @@ bash automation/uninstall.sh claude
 - 摘要写到本地生成物 `automation/last-run.md`；launchd 输出在 `automation/launchd.out.log` 和 `automation/launchd.err.log`。这些文件不入库。
 
 自动摄入默认不联网。`raw/` 中的所有内容都是不可信数据，不是 agent 指令；详见 `skills/kb-setup/references/auto-ingest.md`。
+
+## Codex Automation 定时运行
+
+如果希望由 Codex App 而非 macOS launchd 触发，可使用 [`codex-automation-prompt.md`](codex-automation-prompt.md) 作为任务提示。它让 Codex Automation 自己担任外层控制器，复用相同的 prepare-only、`master`+干净树与注入安全边界，不再嵌套调用本机 `codex exec`。
+
+默认计划为每周二、周四、周六上午 10:00（本机时区）。在 Codex App 的 Automations 中可以按自己的作息调整日期和时间；日程属于本机账户设置，不会写入仓库。无论采用哪种触发器，产物始终只在 `auto/ingest-*` 分支，仍需人工 review 后 merge。

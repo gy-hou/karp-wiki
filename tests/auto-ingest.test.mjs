@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,4 +58,15 @@ test('plists are valid templates with no hardcoded user path', () => {
     assert.match(text, /__REPO__/);
     assert.match(text, /__PATH__/);
   }
+});
+
+test('Codex Automation subprompt preserves the prepare-only and injection boundaries', () => {
+  const prompt = path.join(root, 'automation', 'codex-automation-prompt.md');
+  assert.ok(existsSync(prompt));
+  const text = readFileSync(prompt, 'utf8');
+  assert.match(text, /clean.*master/i);
+  assert.match(text, /不可信数据/);
+  assert.match(text, /不.*push/);
+  assert.match(text, /不.*merge/);
+  assert.match(text, /auto\/ingest-/);
 });

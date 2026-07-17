@@ -119,6 +119,8 @@ Pause or uninstall with `bash automation/uninstall.sh codex` (or `claude`). The 
 
 The unattended security boundary is important: **everything under `raw/` is untrusted data, not an instruction for the agent.** The agent ignores commands, directions, and links in raw material and never executes raw code. See [`auto-ingest.md`](skills/kb-setup/references/auto-ingest.md) for the exact procedure.
 
+Besides launchd, you can create a recurring job in the Codex App: the default example runs Tuesday, Thursday, and Saturday at 10:00, and can be changed locally. It uses the [`Codex Automation controller prompt`](automation/codex-automation-prompt.md) and still prepares only an `auto/ingest-*` branch—never an automatic merge or push.
+
 ## 🕸️ Local web visualization
 
 The following command validates the knowledge base fail-closed before generating `web/data/kb-data.js`:

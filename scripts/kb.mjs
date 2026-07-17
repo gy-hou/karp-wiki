@@ -118,6 +118,23 @@ function isMissing(error) {
   return error?.code === 'ENOENT';
 }
 
+async function collectAllFiles(dir) {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
+  }
+  const files = [];
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...await collectAllFiles(full));
+    else if (entry.isFile()) files.push(full);
+  }
+  return files;
+}
+
 async function collectMarkdown(dir) {
   let entries;
   try {
@@ -372,6 +389,25 @@ export function visibilityErrors(pages, mode) {
     }));
 }
 
+export async function pendingRaw(root) {
+  const pages = await collectPages(path.join(root, 'wiki'));
+  const recorded = new Set(
+    pages
+      .filter((page) => page.type === 'source' && page.rawSha256)
+      .map((page) => page.rawSha256),
+  );
+  const files = await collectAllFiles(path.join(root, 'raw'));
+  const pending = [];
+  for (const file of files.sort()) {
+    if (path.basename(file) === '.gitkeep') continue;
+    const sha256 = sha256File(await readFile(file));
+    if (!recorded.has(sha256)) {
+      pending.push({ path: path.relative(root, file), sha256 });
+    }
+  }
+  return pending.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 const TYPE_TITLES = { concept: 'Concepts', entity: 'Entities', source: 'Sources', output: 'Outputs' };
 
 export function buildIndex(pages) {
@@ -498,6 +534,12 @@ async function cmdCheck(root) {
   console.log(`✓ check passed: ${pages.length} page(s)`);
 }
 
+async function cmdPending(root) {
+  const pending = await pendingRaw(root);
+  for (const item of pending) console.log(item.path);
+  console.error(`${pending.length} pending raw file(s)`);
+}
+
 async function assertKb(root) {
   try {
     const wiki = await stat(path.join(root, 'wiki'));
@@ -508,14 +550,19 @@ async function assertKb(root) {
   }
 }
 
-const COMMANDS = { check: cmdCheck, reindex: cmdReindex, 'build-graph': cmdBuildGraph };
+const COMMANDS = {
+  check: cmdCheck,
+  reindex: cmdReindex,
+  'build-graph': cmdBuildGraph,
+  pending: cmdPending,
+};
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const command = process.argv[2];
   const root = resolveRoot(process.argv.slice(3));
   const commandFn = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
   if (!commandFn) {
-    console.error('Usage: node scripts/kb.mjs <check|reindex|build-graph> [--root <dir>]');
+    console.error('Usage: node scripts/kb.mjs <check|reindex|build-graph|pending> [--root <dir>]');
     process.exitCode = 2;
   } else if (!root) {
     console.error('Cannot determine KB root: run inside a git repo or pass --root <dir>.');

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseFrontmatter, extractWikiLinks, resolveRoot,
-  collectPages, findMalformed, validate, parseIndexIds, indexCoverageErrors, visibilityErrors, sha256File,
+  collectPages, findMalformed, validate, parseIndexIds, indexCoverageErrors, visibilityErrors, sha256File, pendingRaw,
 } from '../scripts/kb.mjs';
 import * as kb from '../scripts/kb.mjs';
 import { withTmpDir, writeTree } from './helpers/tmp.mjs';
@@ -129,6 +129,15 @@ test('good fixture: zero validate errors', async () => {
 
 test('good fixture: no malformed files', async () => {
   assert.deepEqual(await findMalformed(path.join(fx('good'), 'wiki')), []);
+});
+
+test('pendingRaw lists raw files whose sha256 is not recorded by any source', async () => {
+  const list = await pendingRaw(fx('pending'));
+  assert.deepEqual(list.map((item) => item.path), ['raw/text/orphan.md']);
+});
+
+test('pendingRaw returns empty when all raw is ingested (good fixture)', async () => {
+  assert.deepEqual(await pendingRaw(fx('good')), []);
 });
 
 test('bad-dup-id → duplicate_id', async () => {
@@ -559,5 +568,5 @@ test('build-graph CLI fails closed on public-git private-page errors', async () 
 test('CLI rejects an inherited-property command with usage exit 2', () => {
   const result = spawnSync(process.execPath, [kbCli, 'toString', '--root', fx('good')], { encoding: 'utf8' });
   assert.equal(result.status, 2, result.stdout + result.stderr);
-  assert.match(result.stdout + result.stderr, /Usage: node scripts\/kb\.mjs <check\|reindex\|build-graph>/);
+  assert.match(result.stdout + result.stderr, /Usage: node scripts\/kb\.mjs <check\|reindex\|build-graph\|pending>/);
 });

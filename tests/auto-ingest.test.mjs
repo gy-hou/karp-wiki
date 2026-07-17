@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +11,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const sh = path.join(root, 'scripts', 'auto-ingest.sh');
 const fixture = path.join(root, 'tests', 'fixtures', 'pending');
-const run = (args) => execFileSync('bash', [sh, ...args], { encoding: 'utf8' });
+const run = (args) => execFileSync('bash', [sh, ...args], {
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' });
 
 test('--dry-run on pending fixture lists pending and plans a branch, no agent or commit', () => {
@@ -42,4 +46,16 @@ test('refuses a non-master or dirty worktree before invoking an agent', async ()
     assert.match(run(['--agent', 'codex', '--root', kbRoot]), /abort: working tree dirty/);
     assert.equal(git(['branch', '--show-current'], kbRoot).trim(), 'master');
   });
+});
+
+test('plists are valid templates with no hardcoded user path', () => {
+  for (const agent of ['codex', 'claude']) {
+    const plist = path.join(root, `automation/com.karp-wiki.autoingest.${agent}.plist`);
+    assert.ok(existsSync(plist));
+    execFileSync('plutil', ['-lint', plist], { encoding: 'utf8' });
+    const text = execFileSync('sed', ['-n', '1,$p', plist], { encoding: 'utf8' });
+    assert.doesNotMatch(text, /\/Users\//, 'plist must use placeholders, not a real user path');
+    assert.match(text, /__REPO__/);
+    assert.match(text, /__PATH__/);
+  }
 });

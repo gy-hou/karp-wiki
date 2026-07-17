@@ -10,3 +10,4 @@ raw/audio/*
 .DS_Store
 node_modules/
 automation/last-run.md
+automation/launchd.*.log

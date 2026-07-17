@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.karp-wiki.autoingest.claude</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/scripts/auto-ingest.sh</string>
+    <string>--agent</string>
+    <string>claude</string>
+    <string>--root</string>
+    <string>__REPO__</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+  <key>WatchPaths</key>
+  <array>
+    <string>__REPO__/raw</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Weekday</key><integer>1</integer>
+      <key>Hour</key><integer>9</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key><integer>4</integer>
+      <key>Hour</key><integer>9</integer>
+      <key>Minute</key><integer>0</integer>
+    </dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>__REPO__/automation/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO__/automation/launchd.err.log</string>
+</dict>
+</plist>

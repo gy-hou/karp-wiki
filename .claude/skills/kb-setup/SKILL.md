@@ -22,6 +22,7 @@ description: Use when 用户说“帮我搭知识库”“初始化知识库”�
 - scaffold 或写任何页面前读取 [schema.md](references/schema.md)。
 - first ingest 前读取 [workflows.md](references/workflows.md)。
 - 检查运行时能力或处理图片、音频时读取 [multimodal.md](references/multimodal.md)。
+- 无人值守自动摄入时读取 [auto-ingest.md](references/auto-ingest.md)。
 
 结构变更使用确定性工具（需要时加 `--root <dir>`）：
 
